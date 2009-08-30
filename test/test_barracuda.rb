@@ -144,6 +144,22 @@ class TestProgram < Test::Unit::TestCase
     assert_equal sum, out.data[0]
   end
   
+  def test_program_largest_buffer_is_input
+    p = Program.new <<-'eof'
+      __kernel sum(__global int* out, __global int* in, int total) {
+        int id = get_global_id(0);
+        if (id < total) atom_add(&out[0], in[id]); 
+      }
+    eof
+    
+    arr = (1..517).to_a
+    sum = arr.inject(0) {|acc, el| acc + el }
+    _in = Buffer.new(arr)
+    out = OutputBuffer.new(:int, 1)
+    p.sum(out, _in, arr.size)
+    assert_equal sum, out.data[0]
+  end
+  
   def test_program_invalid_worker_size
     p = Program.new("__kernel sum(int x) { }")
     assert_raise(ArgumentError) { p.sum(:worker_size => "hello") }

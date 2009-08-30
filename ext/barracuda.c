@@ -397,6 +397,9 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
                     clEnqueueWriteBuffer(commands, buffer->data, CL_TRUE, 0, 
                         buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
                     err = clSetKernelArg(kernel, i - 1, sizeof(cl_mem), &buffer->data);
+                    if (buffer->num_items > global) {
+                        global = buffer->num_items;
+                    }
                 }
                 break;
         }
