@@ -144,17 +144,16 @@ GLOSSARY
 --------
 
 * **Program**: an OpenCL program is generally created from a variant of C that
-               has extra domain specific keywords. A program has at least one 
-               "kernel" method, but can have many regular methods.
+  has extra domain specific keywords. A program has at least one "kernel" 
+  method, but can have many regular methods.
 
 * **Kernel**: a special "entry" method in the program that is exposed to the 
-              programmer to be called on via the OpenCL framework. A kernel
-              method is represented by the `__kernel` keyword before the
-              method body.
+  programmer to be called on via the OpenCL framework. A kernel method is 
+  represented by the `__kernel` keyword before the method body.
 
 * **Buffer**: memory storage which is accessible and (generally shared with the 
-              program). Buffers are usually marked with the `__global` keyword
-              in an OpenCL program.
+  program). Buffers are usually marked with the `__global` keyword in an 
+  OpenCL program.
 
 COPYRIGHT & LICENSING
 ---------------------
