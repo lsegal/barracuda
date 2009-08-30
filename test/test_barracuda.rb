@@ -31,6 +31,46 @@ class TestBuffer < Test::Unit::TestCase
   end
   
   def test_buffer_read
+    b = Buffer.new(4, 2, 3)
+    b.data[0] = 1
+    b.read
+    assert_equal [4,2,3], b.data
+  end
+  
+  def test_buffer_write
+    b = Buffer.new(1, 2, 3)
+    b.data[0] = 4
+    b.write
+    b.read
+    assert_equal [4,2,3], b.data
+  end
+
+  def test_buffer_size_changed
+    b = Buffer.new(1, 2, 3)
+    b.data << 4
+    b.size_changed
+    b.read
+    assert_equal [1,2,3,4], b.data
+  end
+end
+
+class TestOutputBuffer < Test::Unit::TestCase
+  def test_create_int_output_buffer
+    b = OutputBuffer.new(:int, 5)
+    assert_equal 5, b.size
+  end
+
+  def test_create_int_output_buffer
+    b = OutputBuffer.new(:float, 5)
+    assert_equal 5, b.size
+  end
+
+  def test_create_output_buffer_with_invalid_type
+    assert_raise(ArgumentError) { OutputBuffer.new(:char, 5) }
+  end
+  
+  def test_create_output_buffer_with_invalid_size
+    assert_raise(ArgumentError) { OutputBuffer.new(:int, 'x') }
   end
 end
 
@@ -50,7 +90,7 @@ class TestProgram < Test::Unit::TestCase
   
   def test_kernel_run
     p = Program.new("__kernel x_y_z(int x) { }")
-    p.x_y_z
+    assert_nothing_raised { p.x_y_z }
   end
   
   def test_kernel_missing
@@ -88,7 +128,7 @@ class TestProgram < Test::Unit::TestCase
     assert_equal arr.map {|x| x.to_f + 0.5 }, out.data
   end
   
-  def test_program_uneven_buffer_size
+  def test_program_set_worker_size
     p = Program.new <<-'eof'
       __kernel sum(__global int* out, __global int* in, int total) {
         int id = get_global_id(0);
@@ -100,7 +140,19 @@ class TestProgram < Test::Unit::TestCase
     sum = arr.inject(0) {|acc, el| acc + el }
     _in = Buffer.new(arr)
     out = OutputBuffer.new(:int, 1)
-    p.sum(out, _in, arr.size)
+    p.sum(out, _in, arr.size, :worker_size => arr.size)
     assert_equal sum, out.data[0]
+  end
+  
+  def test_program_invalid_worker_size
+    p = Program.new("__kernel sum(int x) { }")
+    assert_raise(ArgumentError) { p.sum(:worker_size => "hello") }
+    assert_raise(ArgumentError) { p.sum(:worker => 1) }
+  end
+  
+  def test_program_invalid_args
+    p = Program.new("__kernel sum(int x, __global int *y) { }")
+    assert_raise(ArgumentError) { p.sum(1, 2) }
+    assert_raise(ArgumentError) { p.sum(1, OutputBuffer.new(:int, 1), 3) }
   end
 end
