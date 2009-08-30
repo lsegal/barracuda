@@ -46,8 +46,6 @@ struct buffer {
     struct buffer *buffer; \
     Data_Get_Struct(self, struct buffer, buffer);
 
-#define ERROR(msg) if (err != CL_SUCCESS) { errmsg = msg; goto finish; }
-
 static void
 init_opencl()
 {
@@ -322,11 +320,20 @@ program_compile(VALUE self, VALUE source)
     return Qtrue;
 }
 
+#define CLEAN() program_clean(kernel, commands);
+#define ERROR(msg) if (err != CL_SUCCESS) { CLEAN(); rb_raise(rb_eOpenCLError, msg); }
+
+static void
+program_clean(cl_kernel kernel, cl_command_queue commands)
+{
+    clReleaseKernel(kernel);
+    clReleaseCommandQueue(commands);
+}
+
 static VALUE
 program_method_missing(int argc, VALUE *argv, VALUE self)
 {
-    char *errmsg = "unknown error";
-    int i, worker_size_set = FALSE;
+    int i;
     size_t local = 0, global = 0;
     cl_kernel kernel;
     cl_command_queue commands;
@@ -343,12 +350,17 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
         rb_raise(rb_eOpenCLError, "could not execute kernel method '%s'", RSTRING_PTR(argv[0]));
     }
 
-    err = 0;
     for (i = 1; i < argc; i++) {
+        err = 0;
         if (i == argc - 1 && TYPE(argv[i]) == T_HASH) {
             VALUE worker_size = rb_hash_aref(argv[i], ID2SYM(ba_worker_size));
-            if (RTEST(worker_size)) {
-                worker_size_set = TRUE;
+            if (RTEST(worker_size) && TYPE(worker_size) == T_FIXNUM) {
+                global = FIX2UINT(worker_size);
+            }
+            else {
+                CLEAN();
+                rb_raise(rb_eArgError, "opts hash must be {:worker_size => INT_VALUE}, got %s",
+                    RSTRING_PTR(rb_inspect(argv[i])));
             }
             break;
         }
@@ -356,12 +368,12 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
         switch(TYPE(argv[i])) {
             case T_FIXNUM: {
                 int value = FIX2INT(argv[i]);
-                err |= clSetKernelArg(kernel, i - 1, sizeof(int), &value);
+                err = clSetKernelArg(kernel, i - 1, sizeof(int), &value);
                 break;
             }
             case T_FLOAT: {
                 float value = RFLOAT_VALUE(argv[i]);
-                err |= clSetKernelArg(kernel, i - 1, sizeof(float), &value);
+                err = clSetKernelArg(kernel, i - 1, sizeof(float), &value);
                 break;
             }
             case T_ARRAY: {
@@ -372,7 +384,7 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
                 if (CLASS_OF(argv[i]) == rb_cOutputBuffer) {
                     struct buffer *buffer;
                     Data_Get_Struct(argv[i], struct buffer, buffer);
-                    err |= clSetKernelArg(kernel, i - 1, sizeof(cl_mem), &buffer->data);
+                    err = clSetKernelArg(kernel, i - 1, sizeof(cl_mem), &buffer->data);
                     if (buffer->num_items > global) {
                         global = buffer->num_items;
                     }
@@ -384,28 +396,28 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
                     buffer_write(argv[i]);
                     clEnqueueWriteBuffer(commands, buffer->data, CL_TRUE, 0, 
                         buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
-                    err |= clSetKernelArg(kernel, i - 1, sizeof(cl_mem), &buffer->data);
+                    err = clSetKernelArg(kernel, i - 1, sizeof(cl_mem), &buffer->data);
                 }
                 break;
         }
+        if (err != CL_SUCCESS) {
+            CLEAN();
+            rb_raise(rb_eArgError, "invalid kernel method parameter: %s", RSTRING_PTR(rb_inspect(argv[i])));
+        }
     }
-    ERROR("failed to set parameters on kernel method");
     
     err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &local, NULL);
     ERROR("failed to retrieve kernel work group info");
     
-    printf("global=%d local=%d\n", global, local); fflush(stdout);
-    if (worker_size_set == FALSE) { 
-        /* global work size must be power of 2, greater than 3 and not smaller than local */
+    { /* global work size must be power of 2, greater than 3 and not smaller than local */
         size_t size = 4;
         while (size < global) size *= 2;
         global = size;
         if (global < local) global = local;
     }
-    printf("global=%d local=%d\n", global, local); fflush(stdout);
 
     clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, NULL);
-    if (err) { errmsg = "failed to execute kernel method"; goto finish; }
+    if (err) { CLEAN(); rb_raise(rb_eOpenCLError, "failed to execute kernel method"); }
     
     clFinish(commands);
     
@@ -420,11 +432,7 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
         }
     }
 
-finish:
-    clReleaseKernel(kernel);
-    clReleaseCommandQueue(commands);
-    
-    if (err) rb_raise(rb_eOpenCLError, "%s", errmsg);
+    CLEAN();
     return Qnil;
 }
 
