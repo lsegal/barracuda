@@ -252,6 +252,14 @@ obuffer_initialize(VALUE self, VALUE type, VALUE size)
 }
 
 static VALUE
+obuffer_clear(VALUE self)
+{
+    GET_BUFFER();
+    memset(buffer->cachebuf, 0, buffer->member_size * buffer->num_items);
+    return self;
+}
+
+static VALUE
 obuffer_size(VALUE self)
 {
     GET_BUFFER();
@@ -397,9 +405,6 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
                     clEnqueueWriteBuffer(commands, buffer->data, CL_TRUE, 0, 
                         buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
                     err = clSetKernelArg(kernel, i - 1, sizeof(cl_mem), &buffer->data);
-                    if (buffer->num_items > global) {
-                        global = buffer->num_items;
-                    }
                 }
                 break;
         }
@@ -467,6 +472,7 @@ Init_barracuda()
     rb_cOutputBuffer = rb_define_class_under(rb_mBarracuda, "OutputBuffer", rb_cBuffer);
     rb_define_method(rb_cOutputBuffer, "initialize", obuffer_initialize, 2);
     rb_define_method(rb_cOutputBuffer, "size", obuffer_size, 0);
+    rb_define_method(rb_cOutputBuffer, "clear", obuffer_clear, 0);
     rb_undef_method(rb_cOutputBuffer, "write");
     rb_undef_method(rb_cOutputBuffer, "size_changed");
     rb_undef_method(rb_cOutputBuffer, "data=");
