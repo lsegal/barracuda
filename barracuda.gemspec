@@ -9,5 +9,6 @@ SPEC = Gem::Specification.new do |s|
   s.files = Dir.glob("{ext,benchmarks,test}/**/*") + ['LICENSE', 'README.md', 'Rakefile'] - ['ext/barracuda.bundle', 'ext/Makefile', 'ext/barracuda.o']
   s.test_files = Dir.glob('test/test_*.rb')
   s.require_paths = ['ext']
+  s.extensions    = ['ext/extconf.rb']
   s.rubyforge_project = 'barracuda'
 end
