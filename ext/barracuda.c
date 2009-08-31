@@ -387,7 +387,10 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
                 break;
             }
             case T_ARRAY: {
-                /* TODO */
+                /* create buffer from arg */
+                VALUE buf = buffer_s_allocate(rb_cBuffer);
+                argv[i] = buffer_initialize(1, &argv[i], buf);
+                
                 /* fall-through */
             }
             default:

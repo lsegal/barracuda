@@ -98,6 +98,19 @@ class TestProgram < Test::Unit::TestCase
     assert_raise(NoMethodError) { p.not_x_y_z }
   end
   
+  def test_program_implicit_array_buffer
+    p = Program.new <<-'eof'
+      __kernel copy(__global int *out, __global int *in, int total) {
+        int i = get_global_id(0);
+        if (i < total) out[i] = in[i] + 1;
+      }
+    eof
+    
+    out = OutputBuffer.new(:int, 3)
+    p.copy(out, [1, 2, 3], 3)
+    assert_equal [2, 3, 4], out.data
+  end
+  
   def test_program_int_input_buffer
     p = Program.new <<-'eof'
       __kernel run(__global int* out, __global int* in, int total) {
