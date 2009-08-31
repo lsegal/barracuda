@@ -25,12 +25,13 @@ class TestDataTypes < Test::Unit::TestCase
   
   def test_set_data_type
     [2, 2**64, 2.5, [2]].each do |v|
-      assert_equal :char, v.as_type(:char).data_type
+      assert_equal :char, v.to_type(:char).data_type
     end
+    assert_equal :int, 2.data_type
   end
   
   def test_set_invalid_data_type
-    assert_raise(ArgumentError) { 1.as_type(:unknown) }
+    assert_raise(ArgumentError) { 1.to_type(:unknown) }
   end
   
   def test_invalid_array_data_type
@@ -94,12 +95,9 @@ class TestBuffer < Test::Unit::TestCase
 end
 
 class TestOutputBuffer < Test::Unit::TestCase
-  VALID_TYPES = [:bool, :char, :uchar, :short, :ushort, :int, :uint, :long,
-   :ulong, :float, :half, :size_t, :ptrdiff_t, 'intptr_t', :uintptr_t]
-  
   def test_create_output_buffer_valid_types
-    VALID_TYPES.each do |type|
-      assert_nothing_raised { OutputBuffer.new(type, 5) }
+    TYPES.keys.each do |type|
+      assert_nothing_raised { OutputBuffer.new(type.to_s, 5) }
     end
   end
 
@@ -155,7 +153,7 @@ class TestProgram < Test::Unit::TestCase
     _in = Buffer.new(arr)
     p = Program.new
 
-    TestOutputBuffer::VALID_TYPES.each do |type|
+    TYPES.keys.each do |type|
       # FIXME These types are currently broken
       next if type == :bool
       next if type == :char
