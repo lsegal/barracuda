@@ -8,8 +8,11 @@ static VALUE rb_cProgram;
 static VALUE rb_eProgramSyntaxError;
 static VALUE rb_eOpenCLError;
 
+static VALUE rb_hTypes;
+
 static ID ba_worker_size;
 static ID id_to_s;
+static ID id_data_type;
 
 static ID id_type_bool;
 static ID id_type_char;
@@ -26,7 +29,7 @@ static ID id_type_size_t;
 static ID id_type_ptrdiff_t;
 static ID id_type_intptr_t;
 static ID id_type_uintptr_t;
-static ID id_type_void;
+/*static ID id_type_void;*/
 
 static VALUE program_compile(VALUE self, VALUE source);
 static VALUE buffer_data_set(VALUE self, VALUE new_value);
@@ -536,30 +539,104 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
     return Qnil;
 }
 
+static VALUE
+data_type_set(VALUE self, VALUE value)
+{
+    rb_ivar_set(self, id_data_type, value);
+    return self;
+}
+
+static VALUE
+data_type_get(VALUE self, ID type)
+{
+    VALUE value = rb_ivar_get(self, id_data_type);
+    if (NIL_P(value)) {
+        value = ID2SYM(type);
+        data_type_set(self, value);
+    }
+    return value;
+}
+
+static VALUE
+object_data_type_get(VALUE self)
+{
+    return rb_ivar_get(self, id_data_type);
+}
+
+static VALUE
+fixnum_data_type_get(VALUE self)
+{
+    return data_type_get(self, id_type_int);
+}
+
+static VALUE
+bignum_data_type_get(VALUE self)
+{
+    return data_type_get(self, id_type_long);
+}
+
+static VALUE
+float_data_type_get(VALUE self)
+{
+    return data_type_get(self, id_type_float);
+}
+
+static VALUE
+array_data_type_get(VALUE self)
+{
+    VALUE value = rb_ivar_get(self, id_data_type);
+    if (NIL_P(value)) {
+        if (RARRAY_LEN(self) == 0) goto error;
+
+        value = rb_funcall(RARRAY_PTR(self)[0], id_data_type, 0);
+        if (NIL_P(value)) goto error;
+        data_type_set(self, value);
+    }
+    return value;
+    
+error:
+    rb_raise(rb_eRuntimeError, "unknown buffer data in array %s", 
+        RSTRING_PTR(rb_inspect(self)));
+}
+
+#define TYPE_SET(type, size) \
+    id_type_##type = rb_intern(#type); \
+    rb_hash_aset(rb_hTypes, ID2SYM(id_type_##type), INT2FIX(sizeof(size)));
+    
+void
+types_hash_init()
+{
+    rb_hTypes = rb_hash_new();
+    TYPE_SET(bool,      char);
+    TYPE_SET(char,      cl_char);
+    TYPE_SET(uchar,     cl_uchar);
+    TYPE_SET(short,     cl_short);
+    TYPE_SET(ushort,    cl_ushort);
+    TYPE_SET(int,       cl_int);
+    TYPE_SET(uint,      cl_uint);
+    TYPE_SET(long,      cl_long);
+    TYPE_SET(ulong,     cl_ulong);
+    TYPE_SET(float,     cl_float);
+    TYPE_SET(half,      cl_half);
+    TYPE_SET(size_t,    size_t);
+    TYPE_SET(ptrdiff_t, ptrdiff_t);
+    TYPE_SET(intptr_t,  intptr_t);
+    TYPE_SET(uintptr_t, uintptr_t);
+    OBJ_FREEZE(rb_hTypes);
+}
+
 void
 Init_barracuda()
 {
     ba_worker_size = rb_intern("worker_size");
     id_to_s = rb_intern("to_s");
-    id_type_bool = rb_intern("bool");
-    id_type_char = rb_intern("char");
-    id_type_uchar = rb_intern("uchar");
-    id_type_short = rb_intern("short");
-    id_type_ushort = rb_intern("ushort");
-    id_type_int = rb_intern("int");
-    id_type_uint = rb_intern("uint");
-    id_type_long = rb_intern("long");
-    id_type_ulong = rb_intern("ulong");
-    id_type_float = rb_intern("float");
-    id_type_half = rb_intern("half");
-    id_type_size_t = rb_intern("size_t");
-    id_type_ptrdiff_t = rb_intern("ptrdiff_t");
-    id_type_intptr_t = rb_intern("intptr_t");
-    id_type_uintptr_t = rb_intern("uintptr_t");
-    id_type_void = rb_intern("void");
+    id_data_type = rb_intern("data_type");
+    
+    types_hash_init();
     
     rb_mBarracuda = rb_define_module("Barracuda");
     rb_define_const(rb_mBarracuda, "VERSION",  rb_str_new2(VERSION_STRING));
+    rb_define_const(rb_mBarracuda, "TYPES", rb_hTypes);
     
     rb_eProgramSyntaxError = rb_define_class_under(rb_mBarracuda, "SyntaxError", rb_eSyntaxError);
     rb_eOpenCLError = rb_define_class_under(rb_mBarracuda, "OpenCLError", rb_eStandardError);
@@ -586,6 +663,13 @@ Init_barracuda()
     rb_undef_method(rb_cOutputBuffer, "write");
     rb_undef_method(rb_cOutputBuffer, "size_changed");
     rb_undef_method(rb_cOutputBuffer, "data=");
+    
+    rb_define_method(rb_cObject, "as_type", data_type_set, 1);
+    rb_define_method(rb_cObject, "data_type", object_data_type_get, 0);
+    rb_define_method(rb_cArray, "data_type", array_data_type_get, 0);
+    rb_define_method(rb_cFixnum, "data_type", fixnum_data_type_get, 0);
+    rb_define_method(rb_cBignum, "data_type", bignum_data_type_get, 0);
+    rb_define_method(rb_cFloat, "data_type", float_data_type_get, 0);
     
     init_opencl();
 }
