@@ -55,18 +55,17 @@ class TestBuffer < Test::Unit::TestCase
 end
 
 class TestOutputBuffer < Test::Unit::TestCase
-  def test_create_int_output_buffer
-    b = OutputBuffer.new(:int, 5)
-    assert_equal 5, b.size
-  end
-
-  def test_create_int_output_buffer
-    b = OutputBuffer.new(:float, 5)
-    assert_equal 5, b.size
+  VALID_TYPES = [:bool, :char, :uchar, :short, :ushort, :int, :uint, :long,
+   :ulong, :float, :half, :size_t, :ptrdiff_t, 'intptr_t', :uintptr_t]
+  
+  def test_create_output_buffer_valid_types
+    VALID_TYPES.each do |type|
+      assert_nothing_raised { OutputBuffer.new(type, 5) }
+    end
   end
 
   def test_create_output_buffer_with_invalid_type
-    assert_raise(ArgumentError) { OutputBuffer.new(:char, 5) }
+    assert_raise(ArgumentError) { OutputBuffer.new(:CHAR, 5) }
   end
   
   def test_create_output_buffer_with_invalid_size
@@ -109,6 +108,35 @@ class TestProgram < Test::Unit::TestCase
     out = OutputBuffer.new(:int, 3)
     p.copy(out, [1, 2, 3], 3)
     assert_equal [2, 3, 4], out.data
+  end
+  
+  def test_program_types
+    arr = (1..256).to_a
+    outarr = arr.map {|x| x + 1 }
+    _in = Buffer.new(arr)
+    p = Program.new
+
+    TestOutputBuffer::VALID_TYPES.each do |type|
+      # FIXME These types are currently broken
+      next if type == :bool
+      next if type == :char
+      next if type == :uchar
+      next if type == :size_t
+      next if type == :ptrdiff_t
+      next if type == 'intptr_t'
+      next if type == :uintptr_t
+
+      p.compile <<-eof
+        __kernel run(__global #{type} *out, __global int *in, int total) {
+          int id = get_global_id(0);
+          if (id < total) out[id] = (#{type})in[id]; 
+        }
+      eof
+    
+      out = OutputBuffer.new(type, arr.size)
+      p.run(out, _in, arr.size)
+      assert_equal arr, out.data
+    end
   end
   
   def test_program_int_input_buffer

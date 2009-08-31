@@ -9,6 +9,24 @@ static VALUE rb_eProgramSyntaxError;
 static VALUE rb_eOpenCLError;
 
 static ID ba_worker_size;
+static ID id_to_s;
+
+static ID id_type_bool;
+static ID id_type_char;
+static ID id_type_uchar;
+static ID id_type_short;
+static ID id_type_ushort;
+static ID id_type_int;
+static ID id_type_uint;
+static ID id_type_long;
+static ID id_type_ulong;
+static ID id_type_float;
+static ID id_type_half;
+static ID id_type_size_t;
+static ID id_type_ptrdiff_t;
+static ID id_type_intptr_t;
+static ID id_type_uintptr_t;
+static ID id_type_void;
 
 static VALUE program_compile(VALUE self, VALUE source);
 static VALUE buffer_data_set(VALUE self, VALUE new_value);
@@ -19,9 +37,24 @@ static int err;
 
 #define VERSION_STRING "1.0"
 
-#define BUFFER_TYPE_FLOAT 0x0001
-#define BUFFER_TYPE_INT   0x0002
-#define BUFFER_TYPE_CHAR  0x0003
+enum buffer_type {
+    BUFFER_TYPE_BOOL = 0x01,
+    BUFFER_TYPE_CHAR = 0x02,
+    BUFFER_TYPE_UCHAR = 0x03,
+    BUFFER_TYPE_SHORT = 0x04,
+    BUFFER_TYPE_USHORT = 0x05,
+    BUFFER_TYPE_INT = 0x06,
+    BUFFER_TYPE_UINT = 0x07,
+    BUFFER_TYPE_LONG = 0x08,
+    BUFFER_TYPE_ULONG = 0x09,
+    BUFFER_TYPE_FLOAT = 0x0A,
+    BUFFER_TYPE_HALF = 0x0B,
+    BUFFER_TYPE_SIZET = 0x0C,
+    BUFFER_TYPE_PTRDIFFT = 0x0D,
+    BUFFER_TYPE_INTPTRT = 0x0E,
+    BUFFER_TYPE_UINTPTRT = 0x0F,
+    BUFFER_TYPE_VOID = 0x10
+};
 
 struct program {
     cl_program program;
@@ -33,7 +66,7 @@ struct kernel {
 
 struct buffer {
     VALUE arr;
-    unsigned int type;
+    enum buffer_type type;
     size_t num_items;
     size_t member_size;
     void *cachebuf;
@@ -106,6 +139,13 @@ buffer_update_cache_info(struct buffer *buffer)
     }
 }
 
+#define WRITE_TYPE(type, conv_type, M) \
+    case BUFFER_TYPE_##type: {\
+        conv_type value = M(item); \
+        ((conv_type*)buffer->cachebuf)[i] = value; \
+        break; \
+    }
+
 static VALUE
 buffer_write(VALUE self)
 {
@@ -123,16 +163,22 @@ buffer_write(VALUE self)
     for (i = 0; i < RARRAY_LEN(buffer->arr); i++) {
         VALUE item = RARRAY_PTR(buffer->arr)[i];
         switch (buffer->type) {
-            case BUFFER_TYPE_INT: {
-                int value = FIX2INT(item);
-                ((int *)buffer->cachebuf)[i] = value;
-                break;
-            }
-            case BUFFER_TYPE_FLOAT: {
-                float value = RFLOAT_VALUE(item);
-                ((float *)buffer->cachebuf)[i] = value;
-                break;
-            }
+            WRITE_TYPE(BOOL,     int,        FIX2INT);
+            WRITE_TYPE(CHAR,     cl_char,   *RSTRING_PTR);
+            WRITE_TYPE(UCHAR,    cl_uchar,  *RSTRING_PTR);
+            WRITE_TYPE(SHORT,    cl_short,   FIX2INT);
+            WRITE_TYPE(USHORT,   cl_ushort,  NUM2UINT);
+            WRITE_TYPE(INT,      cl_int,     FIX2INT);
+            WRITE_TYPE(UINT,     cl_uint,    NUM2UINT);
+            WRITE_TYPE(LONG,     cl_long,    NUM2LONG);
+            WRITE_TYPE(ULONG,    cl_ulong,   NUM2ULONG);
+            WRITE_TYPE(FLOAT,    cl_float,   RFLOAT_VALUE);
+            WRITE_TYPE(HALF,     cl_half,    RFLOAT_VALUE);
+            WRITE_TYPE(SIZET,    size_t,     NUM2ULONG);
+            WRITE_TYPE(PTRDIFFT, ptrdiff_t,  NUM2LONG);
+            WRITE_TYPE(INTPTRT,  intptr_t,   FIX2INT);
+            WRITE_TYPE(UINTPTRT, uintptr_t,  NUM2UINT);
+
             default:
                 ((uint32_t *)buffer->cachebuf)[i] = 0;
         }       
@@ -140,6 +186,11 @@ buffer_write(VALUE self)
     
     return self;
 }
+
+#define READ_TYPE(type, conv_type, M) \
+    case BUFFER_TYPE_##type: \
+        rb_ary_push(buffer->arr, M(((conv_type*)buffer->cachebuf)[i])); \
+        break;
 
 static VALUE
 buffer_read(VALUE self)
@@ -153,12 +204,22 @@ buffer_read(VALUE self)
 
     for (i = 0; i < buffer->num_items; i++) {
         switch (buffer->type) {
-            case BUFFER_TYPE_INT:
-                rb_ary_push(buffer->arr, INT2FIX(((int *)buffer->cachebuf)[i]));
-                break;
-            case BUFFER_TYPE_FLOAT:
-                rb_ary_push(buffer->arr, rb_float_new(((float *)buffer->cachebuf)[i]));
-                break;
+            READ_TYPE(BOOL,     int,        INT2FIX);
+            READ_TYPE(CHAR,     cl_char*,   rb_str_new2);
+            READ_TYPE(UCHAR,    cl_uchar*,  rb_str_new2);
+            READ_TYPE(SHORT,    cl_short,   INT2FIX);
+            READ_TYPE(USHORT,   cl_ushort,  UINT2NUM);
+            READ_TYPE(INT,      cl_int,     INT2FIX);
+            READ_TYPE(UINT,     cl_uint,    UINT2NUM);
+            READ_TYPE(LONG,     cl_long,    LONG2NUM);
+            READ_TYPE(ULONG,    cl_ulong,   ULONG2NUM);
+            READ_TYPE(FLOAT,    cl_float,   rb_float_new);
+            READ_TYPE(HALF,     cl_half,    rb_float_new);
+            READ_TYPE(SIZET,    size_t,     ULONG2NUM);
+            READ_TYPE(PTRDIFFT, ptrdiff_t,  LONG2NUM);
+            READ_TYPE(INTPTRT,  intptr_t,   INT2FIX);
+            READ_TYPE(UINTPTRT, uintptr_t,  UINT2NUM);
+
             default:
                 rb_ary_push(buffer->arr, Qnil);
         }       
@@ -223,23 +284,45 @@ buffer_initialize(int argc, VALUE *argv, VALUE self)
     return self;
 }
 
+#define TYPE_CASE(t, t2, size) \
+    if (id_type == id_type_##t) { \
+        buffer->type = BUFFER_TYPE_##t2; \
+        buffer->member_size = sizeof(size); \
+        return type; \
+    }
+
+static VALUE
+obuffer_type_set(VALUE self, VALUE type)
+{
+    ID id_type;
+    GET_BUFFER();
+    
+    id_type = rb_intern_str(rb_funcall(type, id_to_s, 0));
+    TYPE_CASE(bool,      BOOL,     int);
+    TYPE_CASE(char,      CHAR,     cl_char);
+    TYPE_CASE(uchar,     UCHAR,    cl_uchar);
+    TYPE_CASE(short,     SHORT,    cl_short);
+    TYPE_CASE(ushort,    USHORT,   cl_ushort);
+    TYPE_CASE(int,       INT,      cl_int);
+    TYPE_CASE(uint,      UINT,     cl_uint);
+    TYPE_CASE(long,      LONG,     cl_long);
+    TYPE_CASE(ulong,     ULONG,    cl_ulong);
+    TYPE_CASE(float,     FLOAT,    cl_float);
+    TYPE_CASE(half,      HALF,     cl_half);
+    TYPE_CASE(size_t,    SIZET,    size_t);
+    TYPE_CASE(ptrdiff_t, PTRDIFFT, ptrdiff_t);
+    TYPE_CASE(intptr_t,  INTPTRT,  intptr_t);
+    TYPE_CASE(uintptr_t, UINTPTRT, uintptr_t);
+
+    rb_raise(rb_eArgError, "type can only be :float or :int");
+}
+
 static VALUE
 obuffer_initialize(VALUE self, VALUE type, VALUE size)
 {
     GET_BUFFER();
     
-    StringValue(type);
-    if (strcmp(RSTRING_PTR(type), "float") == 0) {
-        buffer->type = BUFFER_TYPE_FLOAT;
-        buffer->member_size = sizeof(float);
-    }
-    else if (strcmp(RSTRING_PTR(type), "int") == 0) {
-        buffer->type = BUFFER_TYPE_INT;
-        buffer->member_size = sizeof(int);
-    }
-    else {
-        rb_raise(rb_eArgError, "type can only be :float or :int");
-    }
+    obuffer_type_set(self, type);
     
     if (TYPE(size) != T_FIXNUM) {
         rb_raise(rb_eArgError, "expecting buffer size as argument 2");
@@ -457,6 +540,23 @@ void
 Init_barracuda()
 {
     ba_worker_size = rb_intern("worker_size");
+    id_to_s = rb_intern("to_s");
+    id_type_bool = rb_intern("bool");
+    id_type_char = rb_intern("char");
+    id_type_uchar = rb_intern("uchar");
+    id_type_short = rb_intern("short");
+    id_type_ushort = rb_intern("ushort");
+    id_type_int = rb_intern("int");
+    id_type_uint = rb_intern("uint");
+    id_type_long = rb_intern("long");
+    id_type_ulong = rb_intern("ulong");
+    id_type_float = rb_intern("float");
+    id_type_half = rb_intern("half");
+    id_type_size_t = rb_intern("size_t");
+    id_type_ptrdiff_t = rb_intern("ptrdiff_t");
+    id_type_intptr_t = rb_intern("intptr_t");
+    id_type_uintptr_t = rb_intern("uintptr_t");
+    id_type_void = rb_intern("void");
     
     rb_mBarracuda = rb_define_module("Barracuda");
     rb_define_const(rb_mBarracuda, "VERSION",  rb_str_new2(VERSION_STRING));
