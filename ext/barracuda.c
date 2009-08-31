@@ -17,6 +17,8 @@ static cl_device_id device_id = NULL;
 static cl_context context = NULL;
 static int err;
 
+#define VERSION_STRING "1.0"
+
 #define BUFFER_TYPE_FLOAT 0x0001
 #define BUFFER_TYPE_INT   0x0002
 #define BUFFER_TYPE_CHAR  0x0003
@@ -450,6 +452,7 @@ Init_barracuda()
     ba_worker_size = rb_intern("worker_size");
     
     rb_mBarracuda = rb_define_module("Barracuda");
+    rb_define_const(rb_mBarracuda, "VERSION",  rb_str_new2(VERSION_STRING));
     
     rb_eProgramSyntaxError = rb_define_class_under(rb_mBarracuda, "SyntaxError", rb_eSyntaxError);
     rb_eOpenCLError = rb_define_class_under(rb_mBarracuda, "OpenCLError", rb_eStandardError);
@@ -476,6 +479,6 @@ Init_barracuda()
     rb_undef_method(rb_cOutputBuffer, "write");
     rb_undef_method(rb_cOutputBuffer, "size_changed");
     rb_undef_method(rb_cOutputBuffer, "data=");
-
+    
     init_opencl();
 }
