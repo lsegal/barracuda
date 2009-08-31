@@ -542,6 +542,14 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
 static VALUE
 data_type_set(VALUE self, VALUE value)
 {
+    if (TYPE(value) != T_SYMBOL) {
+        value = rb_str_intern(rb_String(value));
+    }
+    if (rb_hash_aref(rb_hTypes, value) == Qnil) {
+        rb_raise(rb_eArgError, "invalid data type %s", 
+            RSTRING_PTR(rb_inspect(value)));
+    }
+    
     rb_ivar_set(self, id_data_type, value);
     return self;
 }

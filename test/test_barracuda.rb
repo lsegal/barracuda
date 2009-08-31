@@ -29,6 +29,10 @@ class TestDataTypes < Test::Unit::TestCase
     end
   end
   
+  def test_set_invalid_data_type
+    assert_raise(ArgumentError) { 1.as_type(:unknown) }
+  end
+  
   def test_invalid_array_data_type
     assert_raise(RuntimeError) { [Object.new].data_type }
     assert_raise(RuntimeError) { ['x'].data_type }
