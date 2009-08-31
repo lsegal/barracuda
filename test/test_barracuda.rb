@@ -43,6 +43,11 @@ class TestDataTypes < Test::Unit::TestCase
   def test_object_data_type
     assert_nil Object.new.data_type
   end
+  
+  def test_type_class
+    assert_equal :long, Type.new(1).long.data_type
+    assert_equal :uchar, Type(1).uchar.data_type
+  end
 end
 
 class TestBuffer < Test::Unit::TestCase

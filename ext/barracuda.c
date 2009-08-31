@@ -171,7 +171,6 @@ error:
 static void
 types_hash_init()
 {
-    rb_hTypes = rb_hash_new();
     TYPE_SET(bool,      char);
     TYPE_SET(char,      cl_char);
     TYPE_SET(uchar,     cl_uchar);
@@ -255,6 +254,12 @@ object_to_type(VALUE self, VALUE type)
 {
     VALUE out = rb_funcall(rb_cType, rb_intern("new"), 1, self);
     return type_method_missing(out, type);
+}
+
+static VALUE
+type_new(VALUE klass, VALUE type)
+{
+    return rb_funcall(rb_cType, rb_intern("new"), 1, type);
 }
 
 static void
@@ -731,6 +736,8 @@ Init_barracuda()
     id_data_type = rb_intern("data_type");
     id_object = rb_intern("object");
     
+    rb_hTypes = rb_hash_new();
+    rb_define_method(rb_mKernel, "Type", type_new, 1);
     types_hash_init();
     
     rb_mBarracuda = rb_define_module("Barracuda");
