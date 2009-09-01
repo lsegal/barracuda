@@ -213,7 +213,7 @@ class TestProgram < Test::Unit::TestCase
     assert_equal arr.map {|x| x.to_f + 0.5 }, out.data
   end
   
-  def test_program_set_worker_size
+  def test_program_set_times
     p = Program.new <<-'eof'
       __kernel sum(__global int* out, __global int* in, int total) {
         int id = get_global_id(0);
@@ -225,7 +225,7 @@ class TestProgram < Test::Unit::TestCase
     sum = arr.inject(0) {|acc, el| acc + el }
     _in = Buffer.new(arr)
     out = OutputBuffer.new(:int, 1)
-    p.sum(out, _in, arr.size, :worker_size => arr.size)
+    p.sum(out, _in, arr.size, :times => arr.size)
     assert_equal sum, out.data[0]
   end
   
@@ -245,10 +245,10 @@ class TestProgram < Test::Unit::TestCase
     assert_equal sum, out.data[0]
   end
   
-  def test_program_invalid_worker_size
+  def test_program_invalid_times
     p = Program.new("__kernel sum(int x) { }")
-    assert_raise(ArgumentError) { p.sum(:worker_size => "hello") }
-    assert_raise(ArgumentError) { p.sum(:worker => 1) }
+    assert_raise(ArgumentError) { p.sum(:times => "hello") }
+    assert_raise(ArgumentError) { p.sum(:time => 1) }
   end
   
   def test_program_invalid_args

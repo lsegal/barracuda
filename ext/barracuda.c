@@ -10,7 +10,7 @@ static VALUE rb_eOpenCLError;
 static VALUE rb_cType;
 static VALUE rb_hTypes;
 
-static ID ba_worker_size;
+static ID id_times;
 static ID id_to_sym;
 static ID id_data_type;
 static ID id_object;
@@ -531,13 +531,13 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
         err = !CL_SUCCESS;
         
         if (i == argc - 1 && TYPE(item) == T_HASH) {
-            VALUE worker_size = rb_hash_aref(item, ID2SYM(ba_worker_size));
+            VALUE worker_size = rb_hash_aref(item, ID2SYM(id_times));
             if (RTEST(worker_size) && TYPE(worker_size) == T_FIXNUM) {
                 global = FIX2UINT(worker_size);
             }
             else {
                 CLEAN();
-                rb_raise(rb_eArgError, "opts hash must be {:worker_size => INT_VALUE}, got %s",
+                rb_raise(rb_eArgError, "opts hash must be {:times => INT_VALUE}, got %s",
                     RSTRING_PTR(rb_inspect(item)));
             }
             break;
@@ -650,7 +650,7 @@ init_opencl()
 void
 Init_barracuda()
 {
-    ba_worker_size = rb_intern("worker_size");
+    id_times = rb_intern("times");
     id_to_sym = rb_intern("to_sym");
     id_data_type = rb_intern("data_type");
     id_object = rb_intern("object");

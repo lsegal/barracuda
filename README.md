@@ -87,7 +87,7 @@ to run). Barracuda automatically selects the size of the largest buffer as
 the work group size, but in some cases this may be too small or too large. To
 manually specify the work group size, call the kernel with an options hash:
 
-    program.my_kernel_method(..., :worker_size => 512)
+    program.my_kernel_method(..., :times => 512)
     
 Note that the work group size must be a power of 2. Barracuda will increase
 the work group size to the next power of 2 if it needs to. This means your
@@ -110,7 +110,7 @@ Represents an OpenCL program
       - args should be the arguments defined in the kernel method.
       - supported argument types are Float and Fixnum objects only.
       - if the last arg is a Hash, it should be an options hash with keys:
-          - :worker_size => FIXNUM (the number of iterations to run)
+          - :times => FIXNUM (the number of iterations to run)
 
 **Barracuda::Buffer**:
 
