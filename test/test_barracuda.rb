@@ -23,11 +23,15 @@ class TestDataTypes < Test::Unit::TestCase
     assert_equal :float, [2.5, 2.6].data_type
   end
   
+  def test_set_data_type_fixnum
+    assert_equal :char, 2.to_type(:char).data_type
+    assert_equal :int, 2.data_type
+  end
+  
   def test_set_data_type
-    [2, 2**64, 2.5, [2]].each do |v|
+    [2**64, 2.5, [2]].each do |v|
       assert_equal :char, v.to_type(:char).data_type
     end
-    assert_equal :int, 2.data_type
   end
   
   def test_set_invalid_data_type
@@ -153,31 +157,29 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_types
-    arr = (1..256).to_a
+    arr = (1..5).to_a
     outarr = arr.map {|x| x + 1 }
-    _in = Buffer.new(arr)
     p = Program.new
 
     TYPES.keys.each do |type|
-      # FIXME These types are currently broken
+      # FIXME These types are currently broken (unimplemented in opencl?)
       next if type == :bool
-      next if type == :char
-      next if type == :uchar
+      next if type == :double
       next if type == :size_t
       next if type == :ptrdiff_t
-      next if type == 'intptr_t'
+      next if type == :intptr_t
       next if type == :uintptr_t
 
       p.compile <<-eof
-        __kernel run(__global #{type} *out, __global int *in, int total) {
+        __kernel run(__global #{type} *out, __global #{type} *in, int total) {
           int id = get_global_id(0);
-          if (id < total) out[id] = (#{type})in[id]; 
+          if (id < total) out[id] = in[id] + 1;
         }
       eof
     
       out = OutputBuffer.new(type, arr.size)
-      p.run(out, _in, arr.size)
-      assert_equal arr, out.data
+      p.run(out, arr.to_type(type), arr.size)
+      assert_equal({type => outarr}, {type => out.data})
     end
   end
   

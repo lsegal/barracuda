@@ -11,7 +11,7 @@ static VALUE rb_cType;
 static VALUE rb_hTypes;
 
 static ID ba_worker_size;
-static ID id_to_s;
+static ID id_to_sym;
 static ID id_data_type;
 static ID id_object;
 
@@ -26,6 +26,7 @@ static ID id_type_long;
 static ID id_type_ulong;
 static ID id_type_float;
 static ID id_type_half;
+static ID id_type_double;
 static ID id_type_size_t;
 static ID id_type_ptrdiff_t;
 static ID id_type_intptr_t;
@@ -41,25 +42,6 @@ static int err;
 
 #define VERSION_STRING "1.0"
 
-enum buffer_type {
-    BUFFER_TYPE_BOOL = 0x01,
-    BUFFER_TYPE_CHAR = 0x02,
-    BUFFER_TYPE_UCHAR = 0x03,
-    BUFFER_TYPE_SHORT = 0x04,
-    BUFFER_TYPE_USHORT = 0x05,
-    BUFFER_TYPE_INT = 0x06,
-    BUFFER_TYPE_UINT = 0x07,
-    BUFFER_TYPE_LONG = 0x08,
-    BUFFER_TYPE_ULONG = 0x09,
-    BUFFER_TYPE_FLOAT = 0x0A,
-    BUFFER_TYPE_HALF = 0x0B,
-    BUFFER_TYPE_SIZET = 0x0C,
-    BUFFER_TYPE_PTRDIFFT = 0x0D,
-    BUFFER_TYPE_INTPTRT = 0x0E,
-    BUFFER_TYPE_UINTPTRT = 0x0F,
-    BUFFER_TYPE_VOID = 0x10
-};
-
 struct program {
     cl_program program;
 };
@@ -70,7 +52,7 @@ struct kernel {
 
 struct buffer {
     VALUE arr;
-    enum buffer_type type;
+    ID type;
     size_t num_items;
     size_t member_size;
     void *cachebuf;
@@ -131,16 +113,13 @@ static VALUE
 array_data_type_get(VALUE self)
 {
     VALUE value = rb_ivar_get(self, id_data_type);
-    if (NIL_P(value)) {
-        if (RARRAY_LEN(self) == 0) goto error;
-
-        value = rb_funcall(RARRAY_PTR(self)[0], id_data_type, 0);
-        if (NIL_P(value)) goto error;
-        data_type_set(self, value);
-    }
-    return value;
+    if (RTEST(value)) return value;
     
-error:
+    if (RARRAY_LEN(self) > 0) {
+        VALUE value = rb_funcall(RARRAY_PTR(self)[0], id_data_type, 0);
+        if (RTEST(value)) return value;
+    }
+
     rb_raise(rb_eRuntimeError, "unknown buffer data in array %s", 
         RSTRING_PTR(rb_inspect(self)));
 }
@@ -182,6 +161,7 @@ types_hash_init()
     TYPE_SET(ulong,     cl_ulong);
     TYPE_SET(float,     cl_float);
     TYPE_SET(half,      cl_half);
+    TYPE_SET(double,    cl_double);
     TYPE_SET(size_t,    size_t);
     TYPE_SET(ptrdiff_t, ptrdiff_t);
     TYPE_SET(intptr_t,  intptr_t);
@@ -192,20 +172,35 @@ types_hash_init()
 static void
 type_to_native(VALUE value, ID data_type, void *native_value)
 {
+    if (id_type_char == data_type || id_type_uchar == data_type) {
+        if (TYPE(value) == T_FIXNUM) {
+            value = rb_funcall(value, rb_intern("chr"), 0);
+        }
+        *((cl_char *)native_value) = RSTRING_PTR(value)[0];
+        return;
+    }
+    if (id_type_float == data_type || id_type_double == data_type) {
+        *((cl_float *)native_value) = TYPE(value) == T_FIXNUM ? 
+            (cl_float)FIX2INT(value) : RFLOAT_VALUE(value);
+        return;
+    }
+    if (id_type_half == data_type) {
+        *((cl_half *)native_value) = TYPE(value) == T_FIXNUM ? 
+            (cl_half)FIX2INT(value) : RFLOAT_VALUE(value);
+        return;
+    }
+    
     TYPE_TO_NATIVE(bool,      char,       FIX2INT);
-    TYPE_TO_NATIVE(char,      cl_char,   *RSTRING_PTR);
-    TYPE_TO_NATIVE(uchar,     cl_uchar,  *RSTRING_PTR);
     TYPE_TO_NATIVE(short,     cl_short,   FIX2INT);
     TYPE_TO_NATIVE(ushort,    cl_ushort,  NUM2UINT);
     TYPE_TO_NATIVE(int,       cl_int,     FIX2INT);
     TYPE_TO_NATIVE(uint,      cl_uint,    NUM2UINT);
     TYPE_TO_NATIVE(long,      cl_long,    NUM2LONG);
     TYPE_TO_NATIVE(ulong,     cl_ulong,   NUM2ULONG);
-    TYPE_TO_NATIVE(float,     cl_float,   RFLOAT_VALUE);
-    TYPE_TO_NATIVE(half,      cl_half,    RFLOAT_VALUE);
-    TYPE_TO_NATIVE(size_t,    size_t,     NUM2ULONG);
-    TYPE_TO_NATIVE(ptrdiff_t, ptrdiff_t,  NUM2LONG);
-    TYPE_TO_NATIVE(intptr_t,  intptr_t,   FIX2INT);
+    TYPE_TO_NATIVE(double,    cl_double,  NUM2DBL);
+    TYPE_TO_NATIVE(size_t,    size_t,     NUM2UINT);
+    TYPE_TO_NATIVE(ptrdiff_t, ptrdiff_t,  NUM2UINT);
+    TYPE_TO_NATIVE(intptr_t,  intptr_t,   NUM2UINT);
     TYPE_TO_NATIVE(uintptr_t, uintptr_t,  NUM2UINT);
 }
 
@@ -213,8 +208,8 @@ static VALUE
 type_to_ruby(void *native_value, ID data_type)
 {
     TYPE_TO_RUBY(bool,      char,       INT2FIX);
-    TYPE_TO_RUBY(char,      cl_char*,   rb_str_new2);
-    TYPE_TO_RUBY(uchar,     cl_uchar*,  rb_str_new2);
+    TYPE_TO_RUBY(char,      cl_char,    INT2FIX);
+    TYPE_TO_RUBY(uchar,     cl_uchar,   UINT2NUM);
     TYPE_TO_RUBY(short,     cl_short,   INT2FIX);
     TYPE_TO_RUBY(ushort,    cl_ushort,  UINT2NUM);
     TYPE_TO_RUBY(int,       cl_int,     INT2FIX);
@@ -223,10 +218,12 @@ type_to_ruby(void *native_value, ID data_type)
     TYPE_TO_RUBY(ulong,     cl_ulong,   ULONG2NUM);
     TYPE_TO_RUBY(float,     cl_float,   rb_float_new);
     TYPE_TO_RUBY(half,      cl_half,    rb_float_new);
-    TYPE_TO_RUBY(size_t,    size_t,     ULONG2NUM);
-    TYPE_TO_RUBY(ptrdiff_t, ptrdiff_t,  LONG2NUM);
-    TYPE_TO_RUBY(intptr_t,  intptr_t,   INT2FIX);
+    TYPE_TO_RUBY(double,    cl_double,  DBL2NUM);
+    TYPE_TO_RUBY(size_t,    size_t,     UINT2NUM);
+    TYPE_TO_RUBY(ptrdiff_t, ptrdiff_t,  UINT2NUM);
+    TYPE_TO_RUBY(intptr_t,  intptr_t,   UINT2NUM);
     TYPE_TO_RUBY(uintptr_t, uintptr_t,  UINT2NUM);
+    return Qnil;
 }
 
 static VALUE
@@ -252,6 +249,13 @@ type_object(VALUE self)
 static VALUE
 object_to_type(VALUE self, VALUE type)
 {
+    rb_ivar_set(self, id_data_type, type);
+    return self;
+}
+
+static VALUE
+fixnum_to_type(VALUE self, VALUE type)
+{
     VALUE out = rb_funcall(rb_cType, rb_intern("new"), 1, self);
     return type_method_missing(out, type);
 }
@@ -265,7 +269,6 @@ type_new(VALUE klass, VALUE type)
 static void
 free_buffer(struct buffer *buffer)
 {
-    fflush(stdout);
     clReleaseMemObject(buffer->data);
     rb_gc_mark(buffer->arr);
     ruby_xfree(buffer->cachebuf);
@@ -286,33 +289,15 @@ static void
 buffer_update_cache_info(struct buffer *buffer)
 {
     buffer->num_items = RARRAY_LEN(buffer->arr);
-
-    switch (TYPE(RARRAY_PTR(buffer->arr)[0])) {
-        case T_FIXNUM:
-            buffer->type = BUFFER_TYPE_INT;
-            buffer->member_size = sizeof(int);
-            break;
-        case T_FLOAT:
-            buffer->type = BUFFER_TYPE_FLOAT;
-            buffer->member_size = sizeof(float);
-            break;
-        default:
-            rb_raise(rb_eRuntimeError, "invalid buffer data %s", 
-                RSTRING_PTR(rb_inspect(buffer->arr)));
-    }
+    buffer->type = SYM2ID(rb_funcall(buffer->arr, id_data_type, 0));
+    buffer->member_size = FIX2INT(rb_hash_aref(rb_hTypes, ID2SYM(buffer->type)));
 }
-
-#define WRITE_TYPE(type, conv_type, M) \
-    case BUFFER_TYPE_##type: {\
-        conv_type value = M(item); \
-        ((conv_type*)buffer->cachebuf)[i] = value; \
-        break; \
-    }
 
 static VALUE
 buffer_write(VALUE self)
 {
-    unsigned int i;
+    unsigned int i, index;
+    unsigned long data_ptr[16]; // data buffer
     
     GET_BUFFER();
     
@@ -323,69 +308,29 @@ buffer_write(VALUE self)
     }
     buffer->cachebuf = malloc(buffer->num_items * buffer->member_size);
     
-    for (i = 0; i < RARRAY_LEN(buffer->arr); i++) {
+    for (i = 0, index = 0; i < RARRAY_LEN(buffer->arr); i++, index += buffer->member_size) {
         VALUE item = RARRAY_PTR(buffer->arr)[i];
-        switch (buffer->type) {
-            WRITE_TYPE(BOOL,     int,        FIX2INT);
-            WRITE_TYPE(CHAR,     cl_char,   *RSTRING_PTR);
-            WRITE_TYPE(UCHAR,    cl_uchar,  *RSTRING_PTR);
-            WRITE_TYPE(SHORT,    cl_short,   FIX2INT);
-            WRITE_TYPE(USHORT,   cl_ushort,  NUM2UINT);
-            WRITE_TYPE(INT,      cl_int,     FIX2INT);
-            WRITE_TYPE(UINT,     cl_uint,    NUM2UINT);
-            WRITE_TYPE(LONG,     cl_long,    NUM2LONG);
-            WRITE_TYPE(ULONG,    cl_ulong,   NUM2ULONG);
-            WRITE_TYPE(FLOAT,    cl_float,   RFLOAT_VALUE);
-            WRITE_TYPE(HALF,     cl_half,    RFLOAT_VALUE);
-            WRITE_TYPE(SIZET,    size_t,     NUM2ULONG);
-            WRITE_TYPE(PTRDIFFT, ptrdiff_t,  NUM2LONG);
-            WRITE_TYPE(INTPTRT,  intptr_t,   FIX2INT);
-            WRITE_TYPE(UINTPTRT, uintptr_t,  NUM2UINT);
-
-            default:
-                ((uint32_t *)buffer->cachebuf)[i] = 0;
-        }       
+        
+        type_to_native(item, buffer->type, (void *)data_ptr);
+        memcpy(((int8_t*)buffer->cachebuf) + index, (void *)data_ptr, buffer->member_size);
     }
     
     return self;
 }
 
-#define READ_TYPE(type, conv_type, M) \
-    case BUFFER_TYPE_##type: \
-        rb_ary_push(buffer->arr, M(((conv_type*)buffer->cachebuf)[i])); \
-        break;
-
 static VALUE
 buffer_read(VALUE self)
 {
-    unsigned int i;
+    unsigned int i, index;
     
     GET_BUFFER();
     
     rb_gc_mark(buffer->arr);
     buffer->arr = rb_ary_new2(buffer->num_items);
 
-    for (i = 0; i < buffer->num_items; i++) {
-        switch (buffer->type) {
-            READ_TYPE(BOOL,     int,        INT2FIX);
-            READ_TYPE(CHAR,     cl_char*,   rb_str_new2);
-            READ_TYPE(UCHAR,    cl_uchar*,  rb_str_new2);
-            READ_TYPE(SHORT,    cl_short,   INT2FIX);
-            READ_TYPE(USHORT,   cl_ushort,  UINT2NUM);
-            READ_TYPE(INT,      cl_int,     INT2FIX);
-            READ_TYPE(UINT,     cl_uint,    UINT2NUM);
-            READ_TYPE(LONG,     cl_long,    LONG2NUM);
-            READ_TYPE(ULONG,    cl_ulong,   ULONG2NUM);
-            READ_TYPE(FLOAT,    cl_float,   rb_float_new);
-            READ_TYPE(HALF,     cl_half,    rb_float_new);
-            READ_TYPE(SIZET,    size_t,     ULONG2NUM);
-            READ_TYPE(PTRDIFFT, ptrdiff_t,  LONG2NUM);
-            READ_TYPE(INTPTRT,  intptr_t,   INT2FIX);
-            READ_TYPE(UINTPTRT, uintptr_t,  UINT2NUM);
-
-            default:
-                rb_ary_push(buffer->arr, Qnil);
-        }       
+    for (i = 0, index = 0; i < buffer->num_items; i++, index += buffer->member_size) {
+        VALUE value = type_to_ruby(((int8_t*)buffer->cachebuf) + index, buffer->type);
+        rb_ary_push(buffer->arr, value);
     }
     
     return self;
@@ -447,50 +392,24 @@ buffer_initialize(int argc, VALUE *argv, VALUE self)
     return self;
 }
 
-#define TYPE_CASE(t, t2, size) \
-    if (id_type == id_type_##t) { \
-        buffer->type = BUFFER_TYPE_##t2; \
-        buffer->member_size = sizeof(size); \
-        return type; \
-    }
-
-static VALUE
-obuffer_type_set(VALUE self, VALUE type)
-{
-    ID id_type;
-    GET_BUFFER();
-    
-    id_type = rb_intern_str(rb_funcall(type, id_to_s, 0));
-    TYPE_CASE(bool,      BOOL,     int);
-    TYPE_CASE(char,      CHAR,     cl_char);
-    TYPE_CASE(uchar,     UCHAR,    cl_uchar);
-    TYPE_CASE(short,     SHORT,    cl_short);
-    TYPE_CASE(ushort,    USHORT,   cl_ushort);
-    TYPE_CASE(int,       INT,      cl_int);
-    TYPE_CASE(uint,      UINT,     cl_uint);
-    TYPE_CASE(long,      LONG,     cl_long);
-    TYPE_CASE(ulong,     ULONG,    cl_ulong);
-    TYPE_CASE(float,     FLOAT,    cl_float);
-    TYPE_CASE(half,      HALF,     cl_half);
-    TYPE_CASE(size_t,    SIZET,    size_t);
-    TYPE_CASE(ptrdiff_t, PTRDIFFT, ptrdiff_t);
-    TYPE_CASE(intptr_t,  INTPTRT,  intptr_t);
-    TYPE_CASE(uintptr_t, UINTPTRT, uintptr_t);
-
-    rb_raise(rb_eArgError, "type can only be :float or :int");
-}
-
 static VALUE
 obuffer_initialize(VALUE self, VALUE type, VALUE size)
 {
+    VALUE type_sym, member_size;
     GET_BUFFER();
     
-    obuffer_type_set(self, type);
-    
+    type_sym = rb_funcall(type, id_to_sym, 0);
+    member_size = rb_hash_aref(rb_hTypes, type_sym);
+    if (NIL_P(member_size)) {
+        rb_raise(rb_eArgError, "type can only be one of %s", 
+            RSTRING_PTR(rb_inspect(rb_funcall(rb_hTypes, rb_intern("keys"), 0))));
+    }
     if (TYPE(size) != T_FIXNUM) {
         rb_raise(rb_eArgError, "expecting buffer size as argument 2");
     }
     
+    buffer->type = SYM2ID(type_sym);
+    buffer->member_size = FIX2INT(member_size);
     buffer->num_items = FIX2UINT(size);
     buffer->cachebuf = malloc(buffer->num_items * buffer->member_size);
     buffer->data = clCreateBuffer(context, CL_MEM_READ_WRITE, 
@@ -732,7 +651,7 @@ void
 Init_barracuda()
 {
     ba_worker_size = rb_intern("worker_size");
-    id_to_s = rb_intern("to_s");
+    id_to_sym = rb_intern("to_sym");
     id_data_type = rb_intern("data_type");
     id_object = rb_intern("object");
     
@@ -776,6 +695,7 @@ Init_barracuda()
     rb_define_method(rb_cType, "object", type_object, 0);
     
     rb_define_method(rb_cObject, "to_type", object_to_type, 1);
+    rb_define_method(rb_cFixnum, "to_type", fixnum_to_type, 1);
     rb_define_method(rb_cObject, "data_type", object_data_type_get, 0);
     rb_define_method(rb_cArray, "data_type", array_data_type_get, 0);
     rb_define_method(rb_cFixnum, "data_type", fixnum_data_type_get, 0);
