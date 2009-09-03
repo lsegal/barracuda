@@ -256,4 +256,19 @@ class TestProgram < Test::Unit::TestCase
     assert_raise(ArgumentError) { p.sum(1, 2) }
     assert_raise(ArgumentError) { p.sum(1, OutputBuffer.new(:int, 1), 3) }
   end
+  
+  def test_program_vectors
+    p = Program.new <<-'eof'
+      __kernel copy_to_out(__global float4 *out, __global float4 *vec) {
+        out[0].x = vec[0].x + 0.5;
+        out[0].y = vec[0].y + 0.5;
+        out[0].z = vec[0].z + 0.5;
+        out[0].w = vec[0].w + 0.5;
+      }
+    eof
+    
+    out = OutputBuffer.new(:float, 4)
+    p.copy_to_out(out, [2.5, 2.5, 2.5, 2.5])
+    assert_equal [3, 3, 3, 3], out.data
+  end
 end
