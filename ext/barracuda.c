@@ -1,4 +1,5 @@
 #include <ruby.h>
+#include <math.h>
 #include <OpenCL/OpenCL.h>
 
 static VALUE rb_mBarracuda;
@@ -38,6 +39,7 @@ static VALUE buffer_data_set(VALUE self, VALUE new_value);
 
 static cl_device_id device_id = NULL;
 static cl_context context = NULL;
+static size_t max_work_group_size = 65535;
 static int err;
 
 #define VERSION_STRING "1.1"
@@ -489,21 +491,13 @@ program_compile(VALUE self, VALUE source)
     return Qtrue;
 }
 
-#define CLEAN() program_clean(kernel, commands);
-#define ERROR(msg) if (err != CL_SUCCESS) { CLEAN(); rb_raise(rb_eOpenCLError, msg); }
-
-static void
-program_clean(cl_kernel kernel, cl_command_queue commands)
-{
-    clReleaseKernel(kernel);
-    clReleaseCommandQueue(commands);
-}
+#define CLEAN() { clReleaseKernel(kernel); clReleaseCommandQueue(commands); }
 
 static VALUE
 program_method_missing(int argc, VALUE *argv, VALUE self)
 {
     int i;
-    size_t local = 0, global = 0;
+    size_t global[3] = {1, 1, 1}, local;
     cl_kernel kernel;
     cl_command_queue commands;
     GET_PROGRAM();
@@ -527,7 +521,7 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
         if (i == argc - 1 && TYPE(item) == T_HASH) {
             VALUE worker_size = rb_hash_aref(item, ID2SYM(id_times));
             if (RTEST(worker_size) && TYPE(worker_size) == T_FIXNUM) {
-                global = FIX2UINT(worker_size);
+                global[0] = FIX2UINT(worker_size);
             }
             else {
                 CLEAN();
@@ -547,8 +541,8 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
             struct buffer *buffer;
             Data_Get_Struct(item, struct buffer, buffer);
             err = clSetKernelArg(kernel, i - 1, sizeof(cl_mem), &buffer->data);
-            if (buffer->num_items > global) {
-                global = buffer->num_items;
+            if (buffer->num_items > global[0]) {
+                global[0] = buffer->num_items;
             }
         }
         else if (CLASS_OF(item) == rb_cBuffer) {
@@ -559,8 +553,8 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
             clEnqueueWriteBuffer(commands, buffer->data, CL_TRUE, 0, 
                 buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
             err = clSetKernelArg(kernel, i - 1, sizeof(cl_mem), &buffer->data);
-            if (buffer->num_items > global) {
-                global = buffer->num_items;
+            if (buffer->num_items > global[0]) {
+                global[0] = buffer->num_items;
             }
         }
         else {
@@ -593,17 +587,16 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
     }
     
     err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &local, NULL);
-    ERROR("failed to retrieve kernel work group info");
-    
-    { /* global work size must be power of 2, greater than 3 and not smaller than local */
-        size_t size = 4;
-        while (size < global) size *= 2;
-        global = size;
-        if (global < local) global = local;
+    err = clEnqueueNDRangeKernel(commands, kernel, 3, NULL, global, NULL, 0, NULL, NULL);
+    if (err != CL_SUCCESS) { 
+        CLEAN(); 
+        if (err == CL_INVALID_KERNEL_ARGS) {
+            rb_raise(rb_eArgError, "invalid arguments"); 
+        }
+        else {
+            rb_raise(rb_eOpenCLError, "failed to execute kernel method %d", err); 
+        }
     }
-
-    clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, NULL);
-    if (err) { CLEAN(); rb_raise(rb_eOpenCLError, "failed to execute kernel method"); }
     
     clFinish(commands);
     
@@ -614,7 +607,10 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
             Data_Get_Struct(item, struct buffer, buffer);
             err = clEnqueueReadBuffer(commands, buffer->data, CL_TRUE, 0, 
                 buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
-            ERROR("failed to read output buffer");
+            if (err != CL_SUCCESS) {
+                CLEAN();
+                rb_raise(rb_eOpenCLError, "failed to read output buffer");
+            }
             buffer_read(item);
         }
     }
@@ -639,6 +635,10 @@ init_opencl()
             rb_raise(rb_eOpenCLError, "failed to create a program context");
         }
     }
+    
+    clGetDeviceInfo(device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, 
+        sizeof(size_t), &max_work_group_size, NULL);
+    max_work_group_size = 4096;
 }
 
 void

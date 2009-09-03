@@ -58,16 +58,13 @@ EXAMPLE
 Consider the following example to sum a bunch of integers:
 
     program = Program.new <<-'eof'
-      __kernel sum(__global int *out, __global int *in, int total) {
-        int id = get_global_id(0);
-        if (id < total) atom_add(&out[0], in[id]); 
+      __kernel sum(__global int *in, __global int *out) {
+        atom_add(out, in[get_global_id(0)]); 
       }
     eof
     
-    arr    = (1..65536).to_a
-    input  = Buffer.new(arr)
     output = OutputBuffer.new(:int, 1)
-    program.sum(output, input, arr.size)
+    program.sum((1..65536).to_a, output)
     
     puts "The sum is: " + output.data[0].to_s
     
@@ -86,12 +83,6 @@ manually specify the work group size, call the kernel with an options hash:
 
     program.my_kernel_method(..., :times => 512)
     
-Note that the work group size must be a power of 2. Barracuda will increase
-the work group size to the next power of 2 if it needs to. This means your
-OpenCL program might run more iterations of your kernel method than you 
-request. Because we can't rely on the work group size, we pass in the total 
-data size to ensure we do not exceed the bounds of our data.
-
 CONVERTING TYPES
 ----------------
 

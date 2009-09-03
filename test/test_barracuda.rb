@@ -135,7 +135,7 @@ class TestProgram < Test::Unit::TestCase
   
   def test_kernel_run
     p = Program.new("__kernel x_y_z(int x) { }")
-    assert_nothing_raised { p.x_y_z }
+    assert_raise(ArgumentError) { p.x_y_z }
   end
   
   def test_kernel_missing
@@ -217,7 +217,7 @@ class TestProgram < Test::Unit::TestCase
     p = Program.new <<-'eof'
       __kernel sum(__global int* out, __global int* in, int total) {
         int id = get_global_id(0);
-        if (id < total) atom_add(&out[0], in[id]); 
+        if (id < total) atom_add(out, in[id]); 
       }
     eof
     
@@ -233,7 +233,7 @@ class TestProgram < Test::Unit::TestCase
     p = Program.new <<-'eof'
       __kernel sum(__global int* out, __global int* in, int total) {
         int id = get_global_id(0);
-        if (id < total) atom_add(&out[0], in[id]); 
+        if (id < total) atom_add(out, in[id]); 
       }
     eof
     
@@ -270,5 +270,22 @@ class TestProgram < Test::Unit::TestCase
     out = OutputBuffer.new(:float, 4)
     p.copy_to_out(out, [2.5, 2.5, 2.5, 2.5])
     assert_equal [3, 3, 3, 3], out.data
+  end
+  
+  def test_program_no_total
+    p = Program.new <<-'eof'
+      __kernel copy(__global int *out, __global int *in) {
+        int i = get_global_id(0);
+        out[i] = in[i] + 1;
+      }
+    eof
+    
+    out = OutputBuffer.new(:int, 3)
+    p.copy(out, (1..3).to_a)
+    assert_equal (2..4).to_a, out.data
+
+    out = OutputBuffer.new(:int, 50446)
+    p.copy(out, (1..50446).to_a)
+    assert_equal (2..50447).to_a, out.data
   end
 end

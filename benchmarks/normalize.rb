@@ -36,7 +36,6 @@ arr = []
 num_vecs.times { arr.push(rand, rand, rand, 0.0) }
 output = OutputBuffer.new(:float, arr.size)
 
-
 Benchmark.bmbm do |x|
   x.report("cpu") { norm_all(arr) }
   x.report("gpu") { prog.norm(output, arr, num_vecs) }
