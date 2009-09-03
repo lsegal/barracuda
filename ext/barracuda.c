@@ -40,7 +40,7 @@ static cl_device_id device_id = NULL;
 static cl_context context = NULL;
 static int err;
 
-#define VERSION_STRING "1.0"
+#define VERSION_STRING "1.1"
 
 struct program {
     cl_program program;
