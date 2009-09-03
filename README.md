@@ -15,9 +15,6 @@ Barracuda aims to abstract both CUDA and OpenCL, however for now only OpenCL
 on OSX 10.6 is supported. Patches to extend this support would be joyously
 accepted!
 
-Also note that Barracuda currently only supports data types, namely ints and
-floats only. This should also be expanded.
-
 INSTALLING
 ----------
 
@@ -94,6 +91,29 @@ the work group size to the next power of 2 if it needs to. This means your
 OpenCL program might run more iterations of your kernel method than you 
 request. Because we can't rely on the work group size, we pass in the total 
 data size to ensure we do not exceed the bounds of our data.
+
+CONVERTING TYPES
+----------------
+
+OpenCL has a variety of native types. Most of them are supported, however some
+are not. Because Ruby only has the concept of Float and Fixnum (integer), you
+may need to tell Barracuda the type of your input if you're trying to pass in
+a char, short or double (or possibly have some signedness restrictions). To
+do this, simply call `.to_type(:my_type)` on the input where `:my_type` is
+a key in the `Barracuda::TYPES` hash:
+
+    >> Barracuda::TYPES.keys
+    => [:bool, :char, :uchar, :short, :ushort, :int, :uint, :long, 
+        :ulong, :float, :half, :double, :size_t, :ptrdiff_t, 
+        :intptr_t, :uintptr_t]
+
+For example, to pass in a short, do:
+
+    program.my_kernel(2.to_type(:short))
+    
+This can also be applied to an Array of shorts:
+
+    program.my_kernel([1, 2, 3].to_type(:short))
 
 CLASS DETAILS
 -------------
