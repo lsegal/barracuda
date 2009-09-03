@@ -46,10 +46,6 @@ struct program {
     cl_program program;
 };
 
-struct kernel {
-    cl_kernel kernel;
-};
-
 struct buffer {
     VALUE arr;
     ID type;
