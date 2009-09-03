@@ -72,9 +72,8 @@ The above example will compute the sum of integers 1 to 65536 using (at most)
 65536 parallel processes and return the result in the 1-dimensional output
 buffer (which stores integers and is of length 1). The kernel method `sum` 
 is called by calling the `#sum` method on the program object, and the 
-arguments are passed in sequentially as the output buffer, followed by the
-input data (the integers) followed by the total size of the input (since C
-does not have the concept of array size).
+arguments are passed in sequentially as the input data (the integers) 
+followed by the output buffer to store the data.
 
 We can also specify the work group size (the number of iterations we need
 to run). Barracuda automatically selects the size of the largest buffer as 
