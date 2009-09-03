@@ -31,7 +31,7 @@ prog = Program.new <<-'eof'
   }
 eof
 
-num_vecs = 100000
+num_vecs = 1000000
 arr = []
 num_vecs.times { arr.push(rand, rand, rand, 0.0) }
 output = OutputBuffer.new(:float, arr.size)
