@@ -372,8 +372,6 @@ buffer_data_set(VALUE self, VALUE new_value)
 static VALUE
 buffer_initialize(int argc, VALUE *argv, VALUE self)
 {
-    GET_BUFFER();
-    
     if (argc == 0) {
         rb_raise(rb_eArgError, "no buffer data given");
     }
