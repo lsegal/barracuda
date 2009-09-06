@@ -161,11 +161,11 @@ types_hash_init()
     TYPE_SET(ulong,     cl_ulong);
     TYPE_SET(float,     cl_float);
     TYPE_SET(half,      cl_half);
-    TYPE_SET(double,    cl_double);
-    TYPE_SET(size_t,    size_t);
-    TYPE_SET(ptrdiff_t, ptrdiff_t);
-    TYPE_SET(intptr_t,  intptr_t);
-    TYPE_SET(uintptr_t, uintptr_t);
+    TYPE_SET(double,    cl_float);
+    TYPE_SET(size_t,    cl_uint);
+    TYPE_SET(ptrdiff_t, cl_uint);
+    TYPE_SET(intptr_t,  cl_uint);
+    TYPE_SET(uintptr_t, cl_uint);
     OBJ_FREEZE(rb_hTypes);
 }
 
@@ -197,11 +197,10 @@ type_to_native(VALUE value, ID data_type, void *native_value)
     TYPE_TO_NATIVE(uint,      cl_uint,    NUM2UINT);
     TYPE_TO_NATIVE(long,      cl_long,    NUM2LONG);
     TYPE_TO_NATIVE(ulong,     cl_ulong,   NUM2ULONG);
-    TYPE_TO_NATIVE(double,    cl_double,  NUM2DBL);
-    TYPE_TO_NATIVE(size_t,    size_t,     NUM2UINT);
-    TYPE_TO_NATIVE(ptrdiff_t, ptrdiff_t,  NUM2UINT);
-    TYPE_TO_NATIVE(intptr_t,  intptr_t,   NUM2UINT);
-    TYPE_TO_NATIVE(uintptr_t, uintptr_t,  NUM2UINT);
+    TYPE_TO_NATIVE(size_t,    cl_uint,    NUM2UINT);
+    TYPE_TO_NATIVE(ptrdiff_t, cl_uint,    NUM2UINT);
+    TYPE_TO_NATIVE(intptr_t,  cl_uint,    NUM2UINT);
+    TYPE_TO_NATIVE(uintptr_t, cl_uint,    NUM2UINT);
 }
 
 static VALUE
@@ -214,15 +213,15 @@ type_to_ruby(void *native_value, ID data_type)
     TYPE_TO_RUBY(ushort,    cl_ushort,  UINT2NUM);
     TYPE_TO_RUBY(int,       cl_int,     INT2FIX);
     TYPE_TO_RUBY(uint,      cl_uint,    UINT2NUM);
-    TYPE_TO_RUBY(long,      long,    LONG2NUM);
-    TYPE_TO_RUBY(ulong,     unsigned long,   ULONG2NUM);
+    TYPE_TO_RUBY(long,      cl_long,    LONG2NUM);
+    TYPE_TO_RUBY(ulong,     cl_ulong,   ULONG2NUM);
     TYPE_TO_RUBY(float,     cl_float,   rb_float_new);
     TYPE_TO_RUBY(half,      cl_half,    rb_float_new);
-    TYPE_TO_RUBY(double,    cl_double,  DBL2NUM);
-    TYPE_TO_RUBY(size_t,    size_t,     UINT2NUM);
-    TYPE_TO_RUBY(ptrdiff_t, ptrdiff_t,  UINT2NUM);
-    TYPE_TO_RUBY(intptr_t,  intptr_t,   UINT2NUM);
-    TYPE_TO_RUBY(uintptr_t, uintptr_t,  UINT2NUM);
+    TYPE_TO_RUBY(double,    cl_float,   rb_float_new);
+    TYPE_TO_RUBY(size_t,    cl_uint,    UINT2NUM);
+    TYPE_TO_RUBY(ptrdiff_t, cl_uint,    UINT2NUM);
+    TYPE_TO_RUBY(intptr_t,  cl_uint,    UINT2NUM);
+    TYPE_TO_RUBY(uintptr_t, cl_uint,    UINT2NUM);
     return Qnil;
 }
 

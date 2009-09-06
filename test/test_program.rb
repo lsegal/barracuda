@@ -50,11 +50,6 @@ class TestProgram < Test::Unit::TestCase
     TYPES.keys.each do |type|
       # FIXME These types are currently broken (unimplemented in opencl?)
       next if type == :bool
-      next if type == :double
-      next if type == :size_t
-      next if type == :ptrdiff_t
-      next if type == :intptr_t
-      next if type == :uintptr_t
   
       p.compile <<-eof
         __kernel run(__global #{type} *out, __global #{type} *in) {
