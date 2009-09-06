@@ -34,7 +34,7 @@ eof
 num_vecs = 1000000
 arr = []
 num_vecs.times { arr.push(rand, rand, rand, 0.0) }
-output = OutputBuffer.new(:float, arr.size)
+output = Buffer.new(arr.size).to_type(:float)
 
 Benchmark.bmbm do |x|
   x.report("cpu") { norm_all(arr) }

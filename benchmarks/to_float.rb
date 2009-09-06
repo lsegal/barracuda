@@ -12,9 +12,9 @@ prog = Program.new <<-'eof'
   }
 eof
 
-arr = (1..3333333).to_a
+arr = (1..333333).to_a
 input = Buffer.new(arr)
-output = OutputBuffer.new(:float, arr.size)
+output = Buffer.new(arr.size).to_type(:float)
  
 Benchmark.bmbm do |x|
   x.report("regular") { arr.map {|x| (x.to_f + 0.5) / 3.8 + 2.0 } }
