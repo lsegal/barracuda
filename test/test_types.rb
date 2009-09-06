@@ -23,6 +23,19 @@ class TestDataTypes < Test::Unit::TestCase
     assert_equal :float, [2.5, 2.6].data_type
   end
   
+  def test_set_array_type
+    assert_equal :uchar, [2].to_type(:uchar).data_type
+  end
+  
+  def test_set_buffer_type
+    assert_equal :uchar, Buffer.new([2]).to_type(:uchar).data_type
+  end
+  
+  def test_conversion_to_buffer_maintains_data_type
+    o = [2].to_type(:uchar)
+    assert_equal :uchar, Buffer.new(o).data_type
+  end
+  
   def test_set_data_type_fixnum
     assert_equal :char, 2.to_type(:char).data_type
     assert_equal :int, 2.data_type
