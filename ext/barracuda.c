@@ -214,8 +214,8 @@ type_to_ruby(void *native_value, ID data_type)
     TYPE_TO_RUBY(ushort,    cl_ushort,  UINT2NUM);
     TYPE_TO_RUBY(int,       cl_int,     INT2FIX);
     TYPE_TO_RUBY(uint,      cl_uint,    UINT2NUM);
-    TYPE_TO_RUBY(long,      cl_long,    LONG2NUM);
-    TYPE_TO_RUBY(ulong,     cl_ulong,   ULONG2NUM);
+    TYPE_TO_RUBY(long,      long,    LONG2NUM);
+    TYPE_TO_RUBY(ulong,     unsigned long,   ULONG2NUM);
     TYPE_TO_RUBY(float,     cl_float,   rb_float_new);
     TYPE_TO_RUBY(half,      cl_half,    rb_float_new);
     TYPE_TO_RUBY(double,    cl_double,  DBL2NUM);
@@ -335,6 +335,19 @@ buffer_update_cache(VALUE self)
     return Qnil;
 }
 
+static void
+print_buffer(struct buffer *buffer)
+{
+    int i;
+    for (i = 0; i < buffer->num_items * buffer->member_size; i++) {
+        int c = (int)buffer->cachebuf[i];
+        if (i > 0 && i % 8 == 0) printf("\n");
+        printf("%2.2x ", c);
+    }
+    printf("\n");
+    fflush(stdout);
+}
+
 static VALUE
 buffer_write(VALUE self, cl_command_queue queue)
 {
@@ -344,11 +357,11 @@ buffer_write(VALUE self, cl_command_queue queue)
     GET_BUFFER();
 
     if (NIL_P(RARRAY_PTR(self)[0])) return Qnil;
-
+    
     for (i = 0, index = 0; i < buffer->num_items; i++, index += buffer->member_size) {
         VALUE item = RARRAY_PTR(self)[i];
-        type_to_native(item, buffer->type, (void *)data_ptr);
-        memcpy(buffer->cachebuf + index, (void *)data_ptr, buffer->member_size);
+        type_to_native(item, buffer->type, data_ptr);
+        memcpy(buffer->cachebuf + index, data_ptr, buffer->member_size);
     }
     
     if (queue != NULL) {
@@ -369,11 +382,8 @@ buffer_read(VALUE self, cl_command_queue queue)
     if (buffer->outvar != Qtrue) return Qnil;
 
     if (queue != NULL) {
-        err = clEnqueueReadBuffer(queue, buffer->data, CL_TRUE, 0, 
+        clEnqueueReadBuffer(queue, buffer->data, CL_TRUE, 0, 
             buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
-        if (err != CL_SUCCESS) {
-            rb_raise(rb_eOpenCLError, "could not read output buffer");
-        }
     }
     
     for (i = 0, index = 0; i < buffer->num_items; i++, index += buffer->member_size) {
@@ -401,6 +411,11 @@ buffer_initialize(int argc, VALUE *argv, VALUE self)
     struct buffer *buffer;
     
     rb_call_super(argc, argv);
+    
+    if (argc == 1 && TYPE(argv[0]) == T_ARRAY) {
+        VALUE value = rb_ivar_get(argv[0], id_data_type);
+        if (RTEST(value)) rb_ivar_set(self, id_data_type, value);
+    }
 
     buffer = ALLOC(struct buffer);
     MEMZERO(buffer, struct buffer, 1);
