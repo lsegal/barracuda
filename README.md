@@ -174,6 +174,7 @@ Represents an OpenCL program
 Data storage to transfer to/from an OpenCL kernel method
     
     Buffer.new(buffer_array) => creates a new input buffer
+    Buffer.new(size)         => creates a new output buffer of size `size`
   
     Buffer#mark_dirty        => call this if the data was modified between calls
 
