@@ -4,7 +4,6 @@
 
 static VALUE rb_mBarracuda;
 static VALUE rb_cBuffer;
-static VALUE rb_cOutputBuffer;
 static VALUE rb_cProgram;
 static VALUE rb_eProgramSyntaxError;
 static VALUE rb_eOpenCLError;
@@ -13,8 +12,10 @@ static VALUE rb_hTypes;
 
 static ID id_times;
 static ID id_to_sym;
-static ID id_data_type;
+static ID id_new;
 static ID id_object;
+static ID id_data_type;
+static ID id_buffer_data;
 
 static ID id_type_bool;
 static ID id_type_char;
@@ -35,7 +36,6 @@ static ID id_type_uintptr_t;
 /*static ID id_type_void;*/
 
 static VALUE program_compile(VALUE self, VALUE source);
-static VALUE buffer_data_set(VALUE self, VALUE new_value);
 
 static cl_device_id device_id = NULL;
 static cl_context context = NULL;
@@ -49,11 +49,12 @@ struct program {
 };
 
 struct buffer {
-    VALUE arr;
+    VALUE dirty;
+    VALUE outvar;
     ID type;
-    size_t num_items;
     size_t member_size;
-    void *cachebuf;
+    size_t num_items;
+    int8_t *cachebuf;
     cl_mem data;
 };
 
@@ -114,11 +115,12 @@ array_data_type_get(VALUE self)
     if (RTEST(value)) return value;
     
     if (RARRAY_LEN(self) > 0) {
+        if (NIL_P(RARRAY_PTR(self)[0])) return ID2SYM(id_type_int);
         VALUE value = rb_funcall(RARRAY_PTR(self)[0], id_data_type, 0);
         if (RTEST(value)) return value;
     }
-
-    rb_raise(rb_eRuntimeError, "unknown buffer data in array %s", 
+    
+    rb_raise(rb_eTypeError, "unknown buffer data %s", 
         RSTRING_PTR(rb_inspect(self)));
 }
 
@@ -128,7 +130,7 @@ array_data_type_get(VALUE self)
     
 #define GET_BUFFER() \
     struct buffer *buffer; \
-    Data_Get_Struct(self, struct buffer, buffer);
+    Data_Get_Struct(rb_ivar_get(self, id_buffer_data), struct buffer, buffer);
 
 #define TYPE_SET(type, size) \
     id_type_##type = rb_intern(#type); \
@@ -261,172 +263,157 @@ fixnum_to_type(VALUE self, VALUE type)
 static VALUE
 type_new(VALUE klass, VALUE type)
 {
-    return rb_funcall(rb_cType, rb_intern("new"), 1, type);
+    return rb_funcall(rb_cType, id_new, 1, type);
 }
 
 static void
-free_buffer(struct buffer *buffer)
+free_buffer_data(struct buffer *buffer)
 {
     clReleaseMemObject(buffer->data);
-    rb_gc_mark(buffer->arr);
     ruby_xfree(buffer->cachebuf);
-    ruby_xfree(buffer);
 }
 
 static VALUE
-buffer_s_allocate(VALUE klass)
+buffer_outvar(VALUE self)
 {
-    struct buffer *buffer;
-    buffer = ALLOC(struct buffer);
-    MEMZERO(buffer, struct buffer, 1);
-    buffer->arr = Qnil;
-    return Data_Wrap_Struct(klass, 0, free_buffer, buffer);
+    GET_BUFFER();
+    buffer->outvar = Qtrue;
+    return self;
+}
+
+static VALUE
+buffer_is_outvar(VALUE self)
+{
+    GET_BUFFER();
+    return buffer->outvar;
+}
+
+static VALUE
+buffer_dirty(VALUE self)
+{
+    GET_BUFFER();
+    if (buffer->dirty == Qtrue) return Qtrue;
+    if (buffer->data == NULL) return Qtrue;
+    if (buffer->cachebuf == NULL) return Qtrue;
+    if (RARRAY_LEN(self) != buffer->num_items) return Qtrue;
+    if (SYM2ID(rb_funcall(self, id_data_type, 0)) != buffer->type) return Qtrue;
+    return Qfalse;
+}
+
+static VALUE
+buffer_mark_dirty(VALUE self)
+{
+    GET_BUFFER();
+    return (buffer->dirty = Qtrue);
 }
 
 static void
-buffer_update_cache_info(struct buffer *buffer)
+buffer_size_changed(struct buffer *buffer)
 {
-    buffer->num_items = RARRAY_LEN(buffer->arr);
-    buffer->type = SYM2ID(rb_funcall(buffer->arr, id_data_type, 0));
-    buffer->member_size = FIX2INT(rb_hash_aref(rb_hTypes, ID2SYM(buffer->type)));
+    clReleaseMemObject(buffer->data);
+    buffer->data = clCreateBuffer(context, CL_MEM_READ_WRITE, 
+            buffer->num_items * buffer->member_size, NULL, NULL);
+    ruby_xfree(buffer->cachebuf);
+    buffer->cachebuf = ruby_xmalloc(buffer->num_items * buffer->member_size);
 }
 
 static VALUE
-buffer_write(VALUE self)
+buffer_update_cache(VALUE self)
+{
+    GET_BUFFER();
+
+    if (buffer_dirty(self) == Qtrue) {
+        size_t old_num_items = buffer->num_items;
+        buffer->num_items = RARRAY_LEN(self);
+        buffer->type = SYM2ID(rb_funcall(self, id_data_type, 0));
+        buffer->member_size = FIX2INT(rb_hash_aref(rb_hTypes, ID2SYM(buffer->type)));
+        if (buffer->num_items != old_num_items) buffer_size_changed(buffer);
+        buffer->dirty = Qfalse;
+        return Qtrue;
+    }
+    
+    return Qnil;
+}
+
+static VALUE
+buffer_write(VALUE self, cl_command_queue queue)
 {
     unsigned int i, index;
     unsigned long data_ptr[16]; // data buffer
     
     GET_BUFFER();
-    
-    buffer_update_cache_info(buffer);
-    
-    if (buffer->cachebuf) {
-        xfree(buffer->cachebuf);
-    }
-    buffer->cachebuf = malloc(buffer->num_items * buffer->member_size);
-    
-    for (i = 0, index = 0; i < RARRAY_LEN(buffer->arr); i++, index += buffer->member_size) {
-        VALUE item = RARRAY_PTR(buffer->arr)[i];
-        
+
+    if (NIL_P(RARRAY_PTR(self)[0])) return Qnil;
+
+    for (i = 0, index = 0; i < buffer->num_items; i++, index += buffer->member_size) {
+        VALUE item = RARRAY_PTR(self)[i];
         type_to_native(item, buffer->type, (void *)data_ptr);
-        memcpy(((int8_t*)buffer->cachebuf) + index, (void *)data_ptr, buffer->member_size);
+        memcpy(buffer->cachebuf + index, (void *)data_ptr, buffer->member_size);
+    }
+    
+    if (queue != NULL) {
+        clEnqueueWriteBuffer(queue, buffer->data, CL_TRUE, 0, 
+            buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
     }
     
     return self;
 }
 
 static VALUE
-buffer_read(VALUE self)
+buffer_read(VALUE self, cl_command_queue queue)
 {
     unsigned int i, index;
     
     GET_BUFFER();
     
-    rb_gc_mark(buffer->arr);
-    buffer->arr = rb_ary_new2(buffer->num_items);
+    if (buffer->outvar != Qtrue) return Qnil;
 
+    if (queue != NULL) {
+        err = clEnqueueReadBuffer(queue, buffer->data, CL_TRUE, 0, 
+            buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
+        if (err != CL_SUCCESS) {
+            rb_raise(rb_eOpenCLError, "could not read output buffer");
+        }
+    }
+    
     for (i = 0, index = 0; i < buffer->num_items; i++, index += buffer->member_size) {
-        VALUE value = type_to_ruby(((int8_t*)buffer->cachebuf) + index, buffer->type);
-        rb_ary_push(buffer->arr, value);
+        VALUE value = type_to_ruby(buffer->cachebuf + index, buffer->type);
+        rb_ary_store(self, i, value);
     }
     
     return self;
 }
 
 static VALUE
-buffer_size_changed(VALUE self)
+array_to_outvar(VALUE self)
 {
-    GET_BUFFER();
-    
-    if (buffer->data) {
-        clReleaseMemObject(buffer->data);
-    }
-    buffer_update_cache_info(buffer);
-    buffer->data = clCreateBuffer(context, CL_MEM_READ_WRITE, 
-        buffer->num_items * buffer->member_size, NULL, NULL);
-
-    buffer_write(self);
-    
-    return self;
-}
-
-static VALUE
-buffer_data(VALUE self)
-{
-    GET_BUFFER();
-    return buffer->arr;
-}
-
-static VALUE
-buffer_data_set(VALUE self, VALUE new_value)
-{
-    GET_BUFFER();
-    
-    if (RTEST(buffer->arr)) {
-        rb_gc_mark(buffer->arr);
-    }
-    buffer->arr = new_value;
-    buffer_size_changed(self);
-    return buffer->arr;
+    VALUE buf = rb_funcall(rb_cBuffer, id_new, 0);
+    rb_ary_replace(buf, self);
+    buffer_outvar(buf);
+    buffer_mark_dirty(buf);
+    return buf;
 }
 
 static VALUE
 buffer_initialize(int argc, VALUE *argv, VALUE self)
 {
-    if (argc == 0) {
-        rb_raise(rb_eArgError, "no buffer data given");
-    }
+    VALUE buf_value;
+    struct buffer *buffer;
     
-    if (TYPE(argv[0]) == T_ARRAY) {
-        buffer_data_set(self, argv[0]);
-    }
-    else {
-        buffer_data_set(self, rb_ary_new4(argc, argv));
+    rb_call_super(argc, argv);
+
+    buffer = ALLOC(struct buffer);
+    MEMZERO(buffer, struct buffer, 1);
+    buffer->outvar = Qfalse;
+    buffer->dirty = Qtrue;
+    buf_value = Data_Wrap_Struct(rb_cObject, 0, free_buffer_data, buffer);
+    rb_ivar_set(self, id_buffer_data, buf_value);
+
+    if (RARRAY_LEN(self) > 0 && NIL_P(RARRAY_PTR(self)[0])) { /* outvar */
+        buffer->outvar = Qtrue;
     }
     
     return self;
-}
-
-static VALUE
-obuffer_initialize(VALUE self, VALUE type, VALUE size)
-{
-    VALUE type_sym, member_size;
-    GET_BUFFER();
-    
-    type_sym = rb_funcall(type, id_to_sym, 0);
-    member_size = rb_hash_aref(rb_hTypes, type_sym);
-    if (NIL_P(member_size)) {
-        rb_raise(rb_eArgError, "type can only be one of %s", 
-            RSTRING_PTR(rb_inspect(rb_funcall(rb_hTypes, rb_intern("keys"), 0))));
-    }
-    if (TYPE(size) != T_FIXNUM) {
-        rb_raise(rb_eArgError, "expecting buffer size as argument 2");
-    }
-    
-    buffer->type = SYM2ID(type_sym);
-    buffer->member_size = FIX2INT(member_size);
-    buffer->num_items = FIX2UINT(size);
-    buffer->cachebuf = malloc(buffer->num_items * buffer->member_size);
-    buffer->data = clCreateBuffer(context, CL_MEM_READ_WRITE, 
-        buffer->member_size * buffer->num_items, NULL, NULL);
-    
-    return self;
-}
-
-static VALUE
-obuffer_clear(VALUE self)
-{
-    GET_BUFFER();
-    memset(buffer->cachebuf, 0, buffer->member_size * buffer->num_items);
-    return self;
-}
-
-static VALUE
-obuffer_size(VALUE self)
-{
-    GET_BUFFER();
-    return INT2FIX(buffer->num_items);
 }
 
 static void
@@ -500,6 +487,7 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
     size_t global[3] = {1, 1, 1}, local;
     cl_kernel kernel;
     cl_command_queue commands;
+    VALUE result;
     GET_PROGRAM();
     
     StringValue(argv[0]);
@@ -531,30 +519,20 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
             break;
         }
         
-        if (TYPE(item) == T_ARRAY) {
+        if (CLASS_OF(item) == rb_cArray) {
             /* create buffer from arg */
-            VALUE buf = buffer_s_allocate(rb_cBuffer);
-            item = buffer_initialize(1, &item, buf);
+            argv[i] = item = rb_funcall(rb_cBuffer, id_new, 1, item);
         }
 
-        if (CLASS_OF(item) == rb_cOutputBuffer) {
+        if (CLASS_OF(item) == rb_cBuffer) {
             struct buffer *buffer;
-            Data_Get_Struct(item, struct buffer, buffer);
+            Data_Get_Struct(rb_ivar_get(item, id_buffer_data), struct buffer, buffer);
+            
+            buffer_update_cache(item);
+            buffer_write(item, commands);
             err = clSetKernelArg(kernel, i - 1, sizeof(cl_mem), &buffer->data);
-            if (buffer->num_items > global[0]) {
-                global[0] = buffer->num_items;
-            }
-        }
-        else if (CLASS_OF(item) == rb_cBuffer) {
-            struct buffer *buffer;
-            Data_Get_Struct(item, struct buffer, buffer);
-
-            buffer_write(item);
-            clEnqueueWriteBuffer(commands, buffer->data, CL_TRUE, 0, 
-                buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
-            err = clSetKernelArg(kernel, i - 1, sizeof(cl_mem), &buffer->data);
-            if (buffer->num_items > global[0]) {
-                global[0] = buffer->num_items;
+            if (RARRAY_LEN(item) > global[0]) {
+                global[0] = RARRAY_LEN(item);
             }
         }
         else {
@@ -600,23 +578,28 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
     
     clFinish(commands);
     
+    result = rb_ary_new();
+
     for (i = 1; i < argc; i++) {
         VALUE item = argv[i];
-        if (CLASS_OF(item) == rb_cOutputBuffer) {
-            struct buffer *buffer;
-            Data_Get_Struct(item, struct buffer, buffer);
-            err = clEnqueueReadBuffer(commands, buffer->data, CL_TRUE, 0, 
-                buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
-            if (err != CL_SUCCESS) {
-                CLEAN();
-                rb_raise(rb_eOpenCLError, "failed to read output buffer");
+        if (CLASS_OF(item) == rb_cBuffer) {
+            if (RTEST(buffer_read(item, commands))) {
+                rb_ary_push(result, item);
             }
-            buffer_read(item);
         }
     }
 
     CLEAN();
-    return Qnil;
+    
+    if (RARRAY_LEN(result) == 0) {
+        return Qnil;
+    }
+    else if (RARRAY_LEN(result) == 1) {
+        return RARRAY_PTR(result)[0];
+    }
+    else {
+        return result;
+    }
 }
 
 static void
@@ -645,9 +628,10 @@ void
 Init_barracuda()
 {
     id_times = rb_intern("times");
+    id_new = rb_intern("new");
     id_to_sym = rb_intern("to_sym");
     id_data_type = rb_intern("data_type");
-    id_object = rb_intern("object");
+    id_buffer_data = rb_intern("buffer_data");
     
     rb_hTypes = rb_hash_new();
     rb_define_method(rb_mKernel, "Type", type_new, 1);
@@ -666,28 +650,19 @@ Init_barracuda()
     rb_define_method(rb_cProgram, "compile", program_compile, 1);
     rb_define_method(rb_cProgram, "method_missing", program_method_missing, -1);
 
-    rb_cBuffer = rb_define_class_under(rb_mBarracuda, "Buffer", rb_cObject);
-    rb_define_alloc_func(rb_cBuffer, buffer_s_allocate);
+    rb_cBuffer = rb_define_class_under(rb_mBarracuda, "Buffer", rb_cArray);
     rb_define_method(rb_cBuffer, "initialize", buffer_initialize, -1);
-    rb_define_method(rb_cBuffer, "size_changed", buffer_size_changed, 0);
-    rb_define_method(rb_cBuffer, "read", buffer_read, 0);
-    rb_define_method(rb_cBuffer, "write", buffer_write, 0);
-    rb_define_method(rb_cBuffer, "data", buffer_data, 0);
-    rb_define_method(rb_cBuffer, "data=", buffer_data_set, 1);
-
-    rb_cOutputBuffer = rb_define_class_under(rb_mBarracuda, "OutputBuffer", rb_cBuffer);
-    rb_define_method(rb_cOutputBuffer, "initialize", obuffer_initialize, 2);
-    rb_define_method(rb_cOutputBuffer, "size", obuffer_size, 0);
-    rb_define_method(rb_cOutputBuffer, "clear", obuffer_clear, 0);
-    rb_undef_method(rb_cOutputBuffer, "write");
-    rb_undef_method(rb_cOutputBuffer, "size_changed");
-    rb_undef_method(rb_cOutputBuffer, "data=");
+    rb_define_method(rb_cBuffer, "outvar", buffer_outvar, 0);
+    rb_define_method(rb_cBuffer, "outvar?", buffer_is_outvar, 0);
+    rb_define_method(rb_cBuffer, "mark_dirty", buffer_mark_dirty, 0);
+    rb_define_method(rb_cBuffer, "dirty?", buffer_dirty, 0);
     
     rb_cType = rb_define_class_under(rb_mBarracuda, "Type", rb_cObject);
     rb_define_method(rb_cType, "initialize", type_initialize, 1);
     rb_define_method(rb_cType, "method_missing", type_method_missing, 1);
     rb_define_method(rb_cType, "object", type_object, 0);
     
+    rb_define_method(rb_cArray, "outvar", array_to_outvar, 0);
     rb_define_method(rb_cObject, "to_type", object_to_type, 1);
     rb_define_method(rb_cFixnum, "to_type", fixnum_to_type, 1);
     rb_define_method(rb_cObject, "data_type", object_data_type_get, 0);
