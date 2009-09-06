@@ -165,4 +165,42 @@ class TestProgram < Test::Unit::TestCase
     p.copy(out, (1..50446).to_a)
     assert_equal (2..50447).to_a, out
   end
+  
+  def test_program_returns_outvars_as_array
+    p = Program.new <<-'eof'
+      __kernel outbufs(__global int *a, __global int *b, int x, __global int *c) {
+        int i = get_global_id(0);
+        a[i] = x+1; b[i] = x+2; c[i] = x+3;
+      }
+    eof
+    
+    a, b, c = Buffer.new(10), Buffer.new(10), Buffer.new(10)
+    result = p.outbufs(a, b, 5, c)
+    assert_equal [a, b, c], result
+  end
+  
+  def test_program_returns_buffer_for_single_outvar
+    p = Program.new <<-'eof'
+      __kernel outbufs(__global int *a, __global int *b) {
+        int i = get_global_id(0);
+        a[i] = b[i];
+      }
+    eof
+    
+    a, b = Buffer.new(5), (1..5).to_a
+    result = p.outbufs(a, b)
+    assert_equal a, result
+  end
+  
+  def test_program_outvar
+    p = Program.new <<-'eof'
+      __kernel add5(__global int *data) {
+        int i = get_global_id(0);
+        data[i] = data[i] + 5;
+      }
+    eof
+    
+    data = [1, 2, 3].outvar
+    assert_equal [6, 7, 8], p.add5(data)
+  end
 end
