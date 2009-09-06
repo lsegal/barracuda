@@ -33,7 +33,7 @@ Or:
     cd barracuda
     rake install
     
-USING
+USAGE
 -----
 
 The basic workflow behind the OpenCL architecture is:
@@ -45,12 +45,14 @@ The basic workflow behind the OpenCL architecture is:
 In Barracuda, this looks basically like:
 
 1. Create a `Barracuda::Program`
-2. Create a `Barracuda::Buffer` or `Barracuda::OutputBuffer`
+2. Create a `Barracuda::Buffer` for input and output
 2. Call the kernel method on the program with buffers as arguments
 3. Read output buffers
 
-As you can see, there are only 3 basic classes: `Program`, `Buffer` (for input
-data), and `OutputBuffer` (for output data).
+As you can see, there are only 2 basic classes: `Program` and `Buffer`. The
+program is where you compile your OpenCL code, and the Buffer class is a 
+subclass of Array that contains your data to pass in and out of the kernel
+method.
 
 EXAMPLE
 -------
@@ -63,7 +65,7 @@ Consider the following example to sum a bunch of integers:
       }
     eof
     
-    output = OutputBuffer.new(:int, 1)
+    output = Buffer.new(1)
     program.sum((1..65536).to_a, output)
     
     puts "The sum is: " + output.data[0].to_s
@@ -82,6 +84,49 @@ manually specify the work group size, call the kernel with an options hash:
 
     program.my_kernel_method(..., :times => 512)
     
+OUTPUT BUFFERS
+--------------
+
+The Buffer class is a superset of both data to be sent and read from the OpenCL
+kernel method being called. In general, if the Buffer contains nil elements,
+it is marked as an "output buffer" and the data is read back from OpenCL after
+the kernel method executes. These nil buffers are not written to OpenCL initially,
+so they are only meant for output data. On the other hand, if the buffer contains
+regular data, it is by default considered as input data only, and the data
+is not read back after the kernel method completes.
+
+In some cases you may want to have a buffer that is both input and output and
+should be read from after the kernel method finishes. To do this, you mark the
+buffer as an `outvar` as so:
+
+    program = Program.new <<-'eof'
+      __kernel addN(__global int *data, int N) {
+        int i = get_global_id(0);
+        data[i] = data[i] + N;
+      }
+    eof
+    
+    data = [1, 2, 3]
+    program.addN(data.outvar, 10) 
+    
+    # prints: [11, 12, 13]
+    p data 
+
+RETURN VALUE
+------------
+
+Generally you need to pass in your output buffer as the buffer to write the
+data back to. The idiom `void method(input, output)` is common to write data to
+output buffers in languages such as C but is a rather clunky API for Ruby.
+Barracuda returns the output buffers as the result of the kernel method call.
+If there is only one output buffer, that buffer is returned as a single result
+(rather than an array of buffers). 
+
+The example above could be simply rewritten as:
+
+    # prints: [11, 12, 13]
+    p program.addN(data.outvar, 10)
+
 CONVERTING TYPES
 ----------------
 
@@ -104,6 +149,8 @@ For example, to pass in a short, do:
 This can also be applied to an Array of shorts:
 
     program.my_kernel([1, 2, 3].to_type(:short))
+    
+The default type for an array (and buffers) is :int
 
 CLASS DETAILS
 -------------
@@ -122,34 +169,20 @@ Represents an OpenCL program
       - if the last arg is a Hash, it should be an options hash with keys:
           - :times => FIXNUM (the number of iterations to run)
 
-**Barracuda::Buffer**:
+**Barracuda::Buffer** (extends *Array*):
 
-Stores data to be sent to an OpenCL kernel method
+Data storage to transfer to/from an OpenCL kernel method
     
-    Buffer.new(*buffer_data) => creates a new input buffer
+    Buffer.new(buffer_array) => creates a new input buffer
   
-    Buffer#data              => accessor for the buffer data
-  
-    Buffer#size_changed      => call this if the buffer.data was modified and the size changed
-      - calls Buffer#write
-  
-    Buffer#write             => call this if the buffer.data was modified (size not changed)
-      - flushes the buffer.data cache to the OpenCL internal memory buffer
-  
-    Buffer#read              => reads the cached data back into buffer.data
-      - refreshes the buffer.data cache according to the internal memory buffer
-    
-**Barracuda::OutputBuffer**:
+    Buffer#mark_dirty        => call this if the data was modified between calls
 
-Holds a buffer for data written from the kernel method.
+    Buffer#dirty?            => returns whether the buffer is marked as dirty
     
-    OutputBuffer.new(type, size) => creates a new output buffer
-      - type can be :float or :int
+    Buffer#outvar            => mark the buffer to be read as output
     
-    OutputBufferBuffer#data      => accessor for the buffer data
-
-    OutputBuffer#size            => returns the buffer size
-
+    Buffer#outvar?           => returns whether buffer is marked to be read
+    
 GLOSSARY
 --------
 
