@@ -1,8 +1,13 @@
 require 'rubygems'
 require 'rake/gempackagetask'
+require 'rake/testtask'
 
 WINDOWS = (PLATFORM =~ /win32|cygwin/ ? true : false) rescue false
 SUDO = WINDOWS ? '' : 'sudo'
+
+task :default => :test
+
+Rake::TestTask.new
 
 load 'barracuda.gemspec'
 Rake::GemPackageTask.new(SPEC) do |pkg|
