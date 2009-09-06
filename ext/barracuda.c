@@ -42,7 +42,7 @@ static cl_context context = NULL;
 static size_t max_work_group_size = 65535;
 static int err;
 
-#define VERSION_STRING "1.2"
+#define VERSION_STRING "1.3"
 
 struct program {
     cl_program program;
