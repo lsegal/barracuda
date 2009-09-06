@@ -20,39 +20,10 @@ class TestBuffer < Test::Unit::TestCase
     assert_equal 80, b.size
   end
   
-  def test_buffer_read_no_cache
+  def test_buffer_mark_dirty
     b = Buffer.new([4, 2, 3])
-    b[0] = 1
-    b.read
-    assert_equal [1,2,3], b
-  end
-  
-  def test_buffer_read_after_mark_dirty
-    b = Buffer.new([4, 2, 3])
-    b[0] = 1
-    b.mark_dirty
-    b.read
-    assert_equal [4,2,3], b
-  end
-  
-  def test_buffer_read_after_mark_dirty_and_write
-    b = Buffer.new([1, 2, 3])
-    b[0] = 4
     b.mark_dirty
     assert b.dirty?
-    b.write
-    b.read
-    assert !b.dirty?
-    assert_equal [4,2,3], b
-  end
-  
-  def test_buffer_size_changed
-    b = Buffer.new([1, 2, 3])
-    b << 4
-    assert b.dirty?
-    b.write
-    assert_equal [1,2,3,4], b
-    assert !b.dirty?
   end
   
   def test_buffer_from_array
@@ -62,6 +33,6 @@ class TestBuffer < Test::Unit::TestCase
   
   def test_outvar_buffer
     b = Buffer.new(8)
-    b.write
+    assert b.outvar?
   end
 end
