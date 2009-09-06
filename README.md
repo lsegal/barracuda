@@ -118,9 +118,9 @@ RETURN VALUE
 Generally you need to pass in your output buffer as the buffer to write the
 data back to. The idiom `void method(input, output)` is common to write data to
 output buffers in languages such as C but is a rather clunky API for Ruby.
-Barracuda returns the output buffers as the result of the kernel method call.
-If there is only one output buffer, that buffer is returned as a single result
-(rather than an array of buffers). 
+Instead, Barracuda returns the output buffers as the result of the kernel method 
+call. If there is only one output buffer, that buffer is returned as a single 
+result (rather than an array of buffers). 
 
 The example above could be simply rewritten as:
 
