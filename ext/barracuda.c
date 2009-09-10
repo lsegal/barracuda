@@ -2,6 +2,10 @@
 #include <math.h>
 #include <OpenCL/OpenCL.h>
 
+#ifndef RFLOAT_VALUE
+#   define RFLOAT_VALUE(v) (RFLOAT(v)->value)
+#endif
+
 static VALUE rb_mBarracuda;
 static VALUE rb_cBuffer;
 static VALUE rb_cProgram;
@@ -11,7 +15,7 @@ static VALUE rb_cType;
 static VALUE rb_hTypes;
 
 static ID id_times;
-static ID id_to_sym;
+static ID id_to_s;
 static ID id_new;
 static ID id_object;
 static ID id_data_type;
@@ -397,7 +401,7 @@ static VALUE
 array_to_outvar(VALUE self)
 {
     VALUE buf = rb_funcall(rb_cBuffer, id_new, 0);
-    rb_ary_replace(buf, self);
+    rb_funcall(buf, rb_intern("replace"), 1, self);
     buffer_outvar(buf);
     buffer_mark_dirty(buf);
     return buf;
@@ -504,7 +508,7 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
     VALUE result;
     GET_PROGRAM();
     
-    StringValue(argv[0]);
+    argv[0] = rb_funcall(argv[0], id_to_s, 0);
     kernel = clCreateKernel(program->program, RSTRING_PTR(argv[0]), &err);
     if (!kernel || err != CL_SUCCESS) {
         rb_raise(rb_eNoMethodError, "no kernel method '%s'", RSTRING_PTR(argv[0]));
@@ -644,7 +648,7 @@ Init_barracuda()
 {
     id_times = rb_intern("times");
     id_new = rb_intern("new");
-    id_to_sym = rb_intern("to_sym");
+    id_to_s = rb_intern("to_s");
     id_data_type = rb_intern("data_type");
     id_buffer_data = rb_intern("buffer_data");
     
