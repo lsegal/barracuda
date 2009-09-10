@@ -14,6 +14,10 @@ class TestProgram < Test::Unit::TestCase
     assert_nothing_raised { Program.new "__kernel fib(int x) { return 0; }"}
   end
   
+  def test_invalid_program
+    assert_raise(TypeError) { Program.new(1) }
+  end
+  
   def test_program_compile
     p = Program.new
     assert_nothing_raised { p.compile "__kernel fib(int x) { }" }
@@ -202,5 +206,17 @@ class TestProgram < Test::Unit::TestCase
     
     data = [1, 2, 3].outvar
     assert_equal [6, 7, 8], p.add5(data)
+  end
+  
+  def test_program_no_outvars
+    p = Program.new("__kernel x(int x) { }")
+    assert_nil p.x(1)
+  end
+  
+  def test_invalid_data_type
+    p = Program.new "__kernel x(int x) { }"
+    myobj = Object.new
+    myobj.instance_variable_set("@data_type", :invalid!)
+    assert_raise(TypeError) { p.x(myobj) }
   end
 end

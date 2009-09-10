@@ -498,7 +498,7 @@ static VALUE
 program_method_missing(int argc, VALUE *argv, VALUE self)
 {
     int i;
-    size_t global[3] = {1, 1, 1}, local;
+    size_t global[3] = {1, 1, 1}, local[3] = {0, 1, 1}, tmp;
     cl_kernel kernel;
     cl_command_queue commands;
     VALUE result;
@@ -555,7 +555,8 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
             VALUE data_type, data_size;
             
             if (CLASS_OF(item) == rb_cType) {
-                data_type = rb_funcall(type_object(item), id_data_type, 0);
+                data_type = rb_funcall(item, id_data_type, 0);
+                item = type_object(item);
             }
             else {
                 data_type = rb_funcall(item, id_data_type, 0);
@@ -563,7 +564,7 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
             data_size = rb_hash_aref(rb_hTypes, data_type);
             if (NIL_P(data_size)) {
                 CLEAN();
-                rb_raise(rb_eRuntimeError, "invalid data type for %s", 
+                rb_raise(rb_eTypeError, "invalid data type for %s", 
                     RSTRING_PTR(rb_inspect(item)));
             }
             
@@ -578,8 +579,8 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
         }
     }
     
-    err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &local, NULL);
-    err = clEnqueueNDRangeKernel(commands, kernel, 3, NULL, global, NULL, 0, NULL, NULL);
+    err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &tmp, NULL);
+    err = clEnqueueNDRangeKernel(commands, kernel, 3, NULL, global, local[0] == 0 ? NULL : local, 0, NULL, NULL);
     if (err != CL_SUCCESS) { 
         CLEAN(); 
         if (err == CL_INVALID_KERNEL_ARGS) {
