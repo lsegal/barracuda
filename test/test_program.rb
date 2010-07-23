@@ -3,6 +3,17 @@ $:.unshift(File.dirname(__FILE__) + '/../ext/')
 require "test/unit"
 require "barracuda"
 
+# CL - Enable these extensions for atom_add() on various types
+EXTENSIONS = <<-'eof'
+#pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
+#pragma OPENCL EXTENSION cl_khr_local_int32_base_atomics : enable
+#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+eof
+
+
+
+
+
 include Barracuda
 
 class TestProgram < Test::Unit::TestCase
@@ -11,7 +22,7 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_create
-    assert_nothing_raised { Program.new "__kernel fib(int x) { return 0; }"}
+    assert_nothing_raised { Program.new "__kernel void fib(int x) { return 0; }"}
   end
   
   def test_invalid_program
@@ -20,22 +31,22 @@ class TestProgram < Test::Unit::TestCase
   
   def test_program_compile
     p = Program.new
-    assert_nothing_raised { p.compile "__kernel fib(int x) { }" }
+    assert_nothing_raised { p.compile "__kernel void fib(int x) { }" }
   end
   
   def test_kernel_run
-    p = Program.new("__kernel x_y_z(int x) { }")
+    p = Program.new("__kernel void x_y_z(int x) { }")
     assert_raise(ArgumentError) { p.x_y_z }
   end
   
   def test_kernel_missing
-    p = Program.new("__kernel x_y_z(int x) { }")
+    p = Program.new("__kernel void x_y_z(int x) { }")
     assert_raise(NoMethodError) { p.not_x_y_z }
   end
   
   def test_program_implicit_array_buffer
     p = Program.new <<-'eof'
-      __kernel copy(__global int *out, __global int *in) {
+      __kernel void copy(__global int *out, __global int *in) {
         int i = get_global_id(0);
         out[i] = in[i] + 1;
       }
@@ -53,10 +64,11 @@ class TestProgram < Test::Unit::TestCase
   
     TYPES.keys.each do |type|
       # FIXME These types are currently broken (unimplemented in opencl?)
+      # CL - ISO C99 nor ANSI C recognize bool as a type. OpenCL is a super and subset of ISO C99
       next if type == :bool
   
       p.compile <<-eof
-        __kernel run(__global #{type} *out, __global #{type} *in) {
+        __kernel void run(__global #{type} *out, __global #{type} *in) {
           int id = get_global_id(0);
           out[id] = in[id] + 1;
         }
@@ -70,7 +82,7 @@ class TestProgram < Test::Unit::TestCase
   
   def test_program_int_input_buffer
     p = Program.new <<-'eof'
-      __kernel run(__global int* out, __global int* in) {
+      __kernel void run(__global int* out, __global int* in) {
         int id = get_global_id(0);
         out[id] = in[id] + 1; 
       }
@@ -84,7 +96,7 @@ class TestProgram < Test::Unit::TestCase
   
   def test_program_float_buffer
     p = Program.new <<-'eof'
-      __kernel run(__global float* out, __global int* in) {
+      __kernel void run(__global float* out, __global int* in) {
         int id = get_global_id(0);
         out[id] = (float)in[id] + 0.5; 
       }
@@ -97,8 +109,9 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_set_times
-    p = Program.new <<-'eof'
-      __kernel sum(__global int* out, __global int* in) {
+    p = Program.new <<-eof
+      #{EXTENSIONS} 
+      __kernel void sum(__global int* out, __global int* in) {
         int id = get_global_id(0);
         atom_add(out, in[id]); 
       }
@@ -112,8 +125,9 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_largest_buffer_is_input
-    p = Program.new <<-'eof'
-      __kernel sum(__global int* out, __global int* in) {
+    p = Program.new <<-eof
+      #{EXTENSIONS} 
+      __kernel void sum(__global int* out, __global int* in) {
         int id = get_global_id(0);
         atom_add(out, in[id]); 
       }
@@ -127,20 +141,20 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_invalid_times
-    p = Program.new("__kernel sum(int x) { }")
+    p = Program.new("__kernel void sum(int x) { }")
     assert_raise(ArgumentError) { p.sum(:times => "hello") }
     assert_raise(ArgumentError) { p.sum(:time => 1) }
   end
   
   def test_program_invalid_args
-    p = Program.new("__kernel sum(int x, __global int *y) { }")
+    p = Program.new("__kernel void sum(int x, __global int *y) { }")
     assert_raise(ArgumentError) { p.sum(1, 2) }
     assert_raise(ArgumentError) { p.sum(1, Buffer.new(1), 3) }
   end
   
   def test_program_vectors
     p = Program.new <<-'eof'
-      __kernel copy_to_out(__global float4 *out, __global float4 *vec) {
+      __kernel void copy_to_out(__global float4 *out, __global float4 *vec) {
         out[0].x = vec[0].x + 0.5;
         out[0].y = vec[0].y + 0.5;
         out[0].z = vec[0].z + 0.5;
@@ -155,7 +169,7 @@ class TestProgram < Test::Unit::TestCase
   
   def test_program_no_total
     p = Program.new <<-'eof'
-      __kernel copy(__global int *out, __global int *in) {
+      __kernel void copy(__global int *out, __global int *in) {
         int i = get_global_id(0);
         out[i] = in[i] + 1;
       }
@@ -172,7 +186,7 @@ class TestProgram < Test::Unit::TestCase
   
   def test_program_returns_outvars_as_array
     p = Program.new <<-'eof'
-      __kernel outbufs(__global int *a, __global int *b, int x, __global int *c) {
+      __kernel void outbufs(__global int *a, __global int *b, int x, __global int *c) {
         int i = get_global_id(0);
         a[i] = x+1; b[i] = x+2; c[i] = x+3;
       }
@@ -185,7 +199,7 @@ class TestProgram < Test::Unit::TestCase
   
   def test_program_returns_buffer_for_single_outvar
     p = Program.new <<-'eof'
-      __kernel outbufs(__global int *a, __global int *b) {
+      __kernel void outbufs(__global int *a, __global int *b) {
         int i = get_global_id(0);
         a[i] = b[i];
       }
@@ -198,7 +212,7 @@ class TestProgram < Test::Unit::TestCase
   
   def test_program_outvar
     p = Program.new <<-'eof'
-      __kernel add5(__global int *data) {
+      __kernel void add5(__global int *data) {
         int i = get_global_id(0);
         data[i] = data[i] + 5;
       }
@@ -209,12 +223,12 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_no_outvars
-    p = Program.new("__kernel x(int x) { }")
+    p = Program.new("__kernel void x(int x) { }")
     assert_nil p.x(1)
   end
   
   def test_invalid_data_type
-    p = Program.new "__kernel x(int x) { }"
+    p = Program.new "__kernel void x(int x) { }"
     myobj = Object.new
     myobj.instance_variable_set("@data_type", :invalid!)
     assert_raise(TypeError) { p.x(myobj) }
