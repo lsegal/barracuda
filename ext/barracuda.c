@@ -1,6 +1,11 @@
 #include <ruby.h>
 #include <math.h>
-#include <OpenCL/OpenCL.h>
+#ifdef SYS_MACOSX
+#    include <OpenCL/opencl.h>
+#else
+#    include <CL/cl.h>
+#endif
+
 
 #ifndef RFLOAT_VALUE
 #   define RFLOAT_VALUE(v) (RFLOAT(v)->value)
