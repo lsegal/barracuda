@@ -18,14 +18,14 @@ def norm_all(arr)
   out = []
   0.step(arr.size - 1, 4) do |i|
     vec = normalize(arr[i], arr[i + 1], arr[i + 2])
-    out.push(*vec, 0.0)
+    out.push(vec, 0.0)
   end
-  out
+  out.flatten
 end
 
 srand
 prog = Program.new <<-'eof'
-  __kernel norm(__global float4 *out, __global float4 *in, int total) {
+  __kernel void norm(__global float4 *out, __global float4 *in, int total) {
     int i = get_global_id(0);
     if (i < total) out[i] = normalize(in[i]);
   }
@@ -37,7 +37,9 @@ num_vecs.times { arr.push(rand, rand, rand, 0.0) }
 output = Buffer.new(arr.size).to_type(:float)
 
 Benchmark.bmbm do |x|
-  x.report("cpu") { norm_all(arr) }
-  x.report("gpu") { prog.norm(output, arr, num_vecs) }
+  # As done above in #norm_all
+  x.report("ruby") { norm_all(arr) }
+  # As done above in Kernel
+  x.report("opencl") { prog.norm(output, arr, num_vecs) }
 end
 

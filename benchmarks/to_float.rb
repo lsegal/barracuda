@@ -6,7 +6,7 @@ require 'benchmark'
 include Barracuda
 
 prog = Program.new <<-'eof'
-  __kernel sum(__global float *out, __global int *in) {
+  __kernel void sum(__global float *out, __global int *in) {
     int i = get_global_id(0);
     out[i] = ((float)in[i] + 0.5) / 3.8 + 2.0;
   }
