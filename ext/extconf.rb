@@ -1,4 +1,8 @@
 require 'mkmf'
 $CPPFLAGS += " -DRUBY_19" if RUBY_VERSION =~ /1.9/
-$LDFLAGS += " -framework OpenCL" if RUBY_PLATFORM =~ /darwin/
+if RUBY_PLATFORM =~ /darwin/
+  $LDFLAGS += " -framework OpenCL" 
+else
+  $LDFLAGS += " -lOpenCL"
+end
 create_makefile('barracuda')
