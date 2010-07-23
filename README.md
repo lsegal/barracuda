@@ -60,7 +60,7 @@ EXAMPLE
 Consider the following example to sum a bunch of integers:
 
     program = Program.new <<-'eof'
-      __kernel sum(__global int *in, __global int *out) {
+      __kernel void sum(__global int *in, __global int *out) {
         atom_add(out, in[get_global_id(0)]); 
       }
     eof
@@ -100,7 +100,7 @@ should be read from after the kernel method finishes. To do this, you mark the
 buffer as an `outvar` as so:
 
     program = Program.new <<-'eof'
-      __kernel addN(__global int *data, int N) {
+      __kernel void addN(__global int *data, int N) {
         int i = get_global_id(0);
         data[i] = data[i] + N;
       }
