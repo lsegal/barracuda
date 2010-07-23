@@ -46,6 +46,7 @@ static ID id_type_uintptr_t;
 
 static VALUE program_compile(VALUE self, VALUE source);
 
+static cl_platform_id platform_id = NULL;
 static cl_device_id device_id = NULL;
 static cl_context context = NULL;
 static size_t max_work_group_size = 65535;
@@ -629,14 +630,24 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
 static void
 init_opencl()
 {
-    if (device_id == NULL) {
-        err = clGetDeviceIDs(NULL, CL_DEVICE_TYPE_GPU, 1, &device_id, NULL);
+    if (platform_id == NULL) {
+        // TODO: Get all the platforms
+        err = clGetPlatformIDs(1, &platform_id, NULL);
         if (err != CL_SUCCESS) {
-            rb_raise(rb_eOpenCLError, "failed to create a device group");
+            rb_raise(rb_eOpenCLError, "failed to create a platform group.");
+        }
+    }
+
+    if (device_id == NULL) {
+        // TODO: Get all the devices
+        err = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_ALL, 1, &device_id, NULL);
+        if (err != CL_SUCCESS) {
+            rb_raise(rb_eOpenCLError, "failed to create a device group.");
         }
     }
 
     if (context == NULL) {
+        // TODO: Make a context spanning all the devices
         context = clCreateContext(0, 1, &device_id, NULL, NULL, &err);
         if (!context) {
             rb_raise(rb_eOpenCLError, "failed to create a program context");
