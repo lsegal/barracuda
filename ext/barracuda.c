@@ -523,7 +523,7 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
     commands = clCreateCommandQueue(context, device_id, 0, &err);
     if (!commands) {
         clReleaseKernel(kernel);
-        rb_raise(rb_eOpenCLError, "could not execute kernel method '%s'", RSTRING_PTR(argv[0]));
+        rb_raise(rb_eOpenCLError, "could not execute kernel method '%s': %d", RSTRING_PTR(argv[0]), err);
     }
 
     for (i = 1; i < argc; i++) {
