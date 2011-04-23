@@ -8,6 +8,11 @@ SUDO = WINDOWS ? '' : 'sudo'
 task :default => :test
 task :test => :build
 
+desc "Make the extension makefile"
+task :makefile do
+  sh "cd ext && ruby extconf.rb"
+end
+
 Rake::TestTask.new
 
 load 'barracuda.gemspec'
@@ -24,6 +29,6 @@ task :install => :package do
 end
 
 desc 'Build Barracuda'
-task :build do
+task :build => :makefile do
   sh "cd ext && make"
 end
