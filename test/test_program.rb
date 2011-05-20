@@ -4,11 +4,11 @@ require "test/unit"
 require "barracuda"
 
 # CL - Enable these extensions for atom_add() on various types
-EXTENSIONS = <<-'eof'
+EXTENSIONS = <<-CL
 #pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_local_int32_base_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
-eof
+CL
 
 
 
@@ -45,12 +45,12 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_implicit_array_buffer
-    p = Program.new <<-'eof'
+    p = Program.new <<-CL
       __kernel void copy(__global int *out, __global int *in) {
         int i = get_global_id(0);
         out[i] = in[i] + 1;
       }
-    eof
+    CL
     
     out = Buffer.new(3)
     p.copy(out, [1, 2, 3])
@@ -62,17 +62,23 @@ class TestProgram < Test::Unit::TestCase
     outarr = arr.map {|x| x + 1 }
     p = Program.new
   
+    # FIXME These types are currently broken (unimplemented in opencl?)
+    # CL - ISO C99 nor ANSI C recognize bool as a type. OpenCL is a super and subset of ISO C99
+    # double is not supported by all architectures
+    ignored_types = [:bool, :double]
+    # pointer types are aligned for some architectures, so they yield a "wrong" result
+    ignored_types += [:size_t, :ptrdiff_t, :intptr_t, :uintptr_t]
+
     TYPES.keys.each do |type|
-      # FIXME These types are currently broken (unimplemented in opencl?)
-      # CL - ISO C99 nor ANSI C recognize bool as a type. OpenCL is a super and subset of ISO C99
-      next if type == :bool
+      next if ignored_types.member? type
   
-      p.compile <<-eof
+      p.compile <<-CL
+        #{EXTENSIONS} 
         __kernel void run(__global #{type} *out, __global #{type} *in) {
           int id = get_global_id(0);
           out[id] = in[id] + 1;
         }
-      eof
+      CL
     
       out = Buffer.new(arr.size).to_type(type)
       p.run(out, arr.to_type(type))
@@ -81,12 +87,12 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_int_input_buffer
-    p = Program.new <<-'eof'
+    p = Program.new <<-CL
       __kernel void run(__global int* out, __global int* in) {
         int id = get_global_id(0);
         out[id] = in[id] + 1; 
       }
-    eof
+    CL
     
     input = (1..256).to_a
     out = Buffer.new(input.size).to_type(:int)
@@ -95,12 +101,12 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_float_buffer
-    p = Program.new <<-'eof'
+    p = Program.new <<-CL
       __kernel void run(__global float* out, __global int* in) {
         int id = get_global_id(0);
         out[id] = (float)in[id] + 0.5; 
       }
-    eof
+    CL
     
     input = (1..256).to_a
     out = Buffer.new(input.size).to_type(:float)
@@ -109,33 +115,35 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_set_times
-    p = Program.new <<-eof
+    p = Program.new <<-CL
       #{EXTENSIONS} 
       __kernel void sum(__global int* out, __global int* in) {
         int id = get_global_id(0);
-        atom_add(out, in[id]); 
+        atomic_add(out, in[id]); 
       }
-    eof
+    CL
     
     input = (1..517).to_a
-    sum = input.inject(0) {|acc, el| acc + el }
+    sum = input.inject(0) {|acc, el| el > input.size / 2 ? acc : acc + el }
     out = Buffer.new(1)
-    p.sum(out, input, :times => input.size)
+    out[0] = 0
+    p.sum(out, input, :times => input.size / 2)
     assert_equal sum, out[0]
   end
   
   def test_program_largest_buffer_is_input
-    p = Program.new <<-eof
+    p = Program.new <<-CL
       #{EXTENSIONS} 
       __kernel void sum(__global int* out, __global int* in) {
         int id = get_global_id(0);
-        atom_add(out, in[id]); 
+        atomic_add(out, in[id]); 
       }
-    eof
+    CL
     
     input = (1..517).to_a
     sum = input.inject(0) {|acc, el| acc + el }
     out = Buffer.new(1)
+    out[0] = 0
     p.sum(out, input)
     assert_equal sum, out[0]
   end
@@ -153,14 +161,11 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_vectors
-    p = Program.new <<-'eof'
+    p = Program.new <<-CL
       __kernel void copy_to_out(__global float4 *out, __global float4 *vec) {
-        out[0].x = vec[0].x + 0.5;
-        out[0].y = vec[0].y + 0.5;
-        out[0].z = vec[0].z + 0.5;
-        out[0].w = vec[0].w + 0.5;
+        out[0] = vec[0] + (float4)(0.5f, 0.5f, 0.5f, 0.5f);
       }
-    eof
+    CL
     
     out = Buffer.new(4).to_type(:float)
     p.copy_to_out(out, [2.5, 2.5, 2.5, 2.5])
@@ -168,12 +173,12 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_no_total
-    p = Program.new <<-'eof'
+    p = Program.new <<-CL
       __kernel void copy(__global int *out, __global int *in) {
         int i = get_global_id(0);
         out[i] = in[i] + 1;
       }
-    eof
+    CL
     
     out = Buffer.new(3)
     p.copy(out, (1..3).to_a)
@@ -185,12 +190,12 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_returns_outvars_as_array
-    p = Program.new <<-'eof'
+    p = Program.new <<-CL
       __kernel void outbufs(__global int *a, __global int *b, int x, __global int *c) {
         int i = get_global_id(0);
         a[i] = x+1; b[i] = x+2; c[i] = x+3;
       }
-    eof
+    CL
     
     a, b, c = Buffer.new(10), Buffer.new(10), Buffer.new(10)
     result = p.outbufs(a, b, 5, c)
@@ -198,12 +203,12 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_returns_buffer_for_single_outvar
-    p = Program.new <<-'eof'
+    p = Program.new <<-CL
       __kernel void outbufs(__global int *a, __global int *b) {
         int i = get_global_id(0);
         a[i] = b[i];
       }
-    eof
+    CL
     
     a, b = Buffer.new(5), (1..5).to_a
     result = p.outbufs(a, b)
@@ -211,12 +216,12 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_outvar
-    p = Program.new <<-'eof'
+    p = Program.new <<-CL
       __kernel void add5(__global int *data) {
         int i = get_global_id(0);
         data[i] = data[i] + 5;
       }
-    eof
+    CL
     
     data = [1, 2, 3].outvar
     assert_equal [6, 7, 8], p.add5(data)
@@ -233,4 +238,5 @@ class TestProgram < Test::Unit::TestCase
     myobj.instance_variable_set("@data_type", :invalid!)
     assert_raise(TypeError) { p.x(myobj) }
   end
+
 end

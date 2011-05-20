@@ -3,3 +3,9 @@
 .DS_Store
 ext/Makefile
 pkg
+**/*.log
+**/*.so
+**/*.dylib
+**/*.dll
+**/*.log
+
