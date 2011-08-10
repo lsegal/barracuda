@@ -333,10 +333,12 @@ buffer_update_cache(VALUE self)
 
     if (buffer_dirty(self) == Qtrue) {
         size_t old_num_items = buffer->num_items;
+        size_t old_member_size = buffer->member_size;
         buffer->num_items = RARRAY_LEN(self);
         buffer->type = SYM2ID(rb_funcall(self, id_data_type, 0));
         buffer->member_size = FIX2INT(rb_hash_aref(rb_hTypes, ID2SYM(buffer->type)));
-        if (buffer->num_items != old_num_items) buffer_size_changed(buffer);
+        if (buffer->num_items != old_num_items || buffer->member_size != old_member_size)
+                buffer_size_changed(buffer);
         buffer->dirty = Qfalse;
         return Qtrue;
     }
