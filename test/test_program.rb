@@ -22,7 +22,7 @@ class TestProgram < Test::Unit::TestCase
   end
   
   def test_program_create
-    assert_nothing_raised { Program.new "__kernel void fib(int x) { return 0; }"}
+    assert_nothing_raised { Program.new "__kernel void fib(int x) { }"}
   end
   
   def test_invalid_program
@@ -36,7 +36,12 @@ class TestProgram < Test::Unit::TestCase
   
   def test_kernel_run
     p = Program.new("__kernel void x_y_z(int x) { }")
-    assert_raise(ArgumentError) { p.x_y_z }
+    assert_raise(ArgumentError) { p.x_y_z(0, 0) }
+  end
+
+  def test_kernel_type
+    p = Program.new("__kernel void x_y_z(int x) { }")
+    assert_raise(TypeError) { p.x_y_z('a') }
   end
   
   def test_kernel_missing
@@ -68,6 +73,8 @@ class TestProgram < Test::Unit::TestCase
     ignored_types = [:bool, :double]
     # pointer types are aligned for some architectures, so they yield a "wrong" result
     ignored_types += [:size_t, :ptrdiff_t, :intptr_t, :uintptr_t]
+    # half ?!
+    ignored_types += [:half]
 
     TYPES.keys.each do |type|
       next if ignored_types.member? type
