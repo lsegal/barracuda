@@ -537,7 +537,17 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
             if (RTEST(worker_size) && TYPE(worker_size) == T_FIXNUM) {
                 global[0] = FIX2UINT(worker_size);
             }
+	    else if (RTEST(worker_size) && TYPE(worker_size) == T_ARRAY && RARRAY_LEN(worker_size) <= 3) {
+		int dim;
+		for (dim = 0; dim < RARRAY_LEN(worker_size); ++dim) {
+		    VALUE v = RARRAY_PTR(worker_size)[dim];
+		    if (!RTEST(v) || TYPE(v) != T_FIXNUM)
+			goto timesargserror;
+		    global[dim] = FIX2UINT(v);
+		}
+	    }
             else {
+timesargserror:
                 CLEAN();
                 rb_raise(rb_eArgError, "opts hash must be {:times => INT_VALUE}, got %s",
                     RSTRING_PTR(rb_inspect(item)));
