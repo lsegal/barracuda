@@ -64,6 +64,7 @@ struct buffer {
     ID type;
     size_t member_size;
     size_t num_items;
+    VALUE raw;
     int8_t *cachebuf;
     cl_mem data;
 };
@@ -304,7 +305,7 @@ buffer_dirty(VALUE self)
     if (buffer->dirty == Qtrue) return Qtrue;
     if (buffer->data == NULL) return Qtrue;
     if (buffer->cachebuf == NULL) return Qtrue;
-    if (RARRAY_LEN(self) != buffer->num_items) return Qtrue;
+    if (!RTEST(buffer->raw) && RARRAY_LEN(self) != buffer->num_items) return Qtrue;
     if (SYM2ID(rb_funcall(self, id_data_type, 0)) != buffer->type) return Qtrue;
     return Qfalse;
 }
@@ -322,8 +323,12 @@ buffer_size_changed(struct buffer *buffer)
     clReleaseMemObject(buffer->data);
     buffer->data = clCreateBuffer(context, CL_MEM_READ_WRITE, 
             buffer->num_items * buffer->member_size, NULL, NULL);
-    ruby_xfree(buffer->cachebuf);
-    buffer->cachebuf = ruby_xmalloc(buffer->num_items * buffer->member_size);
+    if (!RTEST(buffer->raw)) {
+	ruby_xfree(buffer->cachebuf);
+	buffer->cachebuf = ruby_xmalloc(buffer->num_items * buffer->member_size);
+    } else {
+        buffer->cachebuf = xrealloc(buffer->cachebuf, buffer->num_items * buffer->member_size);
+    }
 }
 
 static VALUE
@@ -333,10 +338,12 @@ buffer_update_cache(VALUE self)
 
     if (buffer_dirty(self) == Qtrue) {
         size_t old_num_items = buffer->num_items;
+        size_t old_member_size = buffer->member_size;
         buffer->num_items = RARRAY_LEN(self);
         buffer->type = SYM2ID(rb_funcall(self, id_data_type, 0));
         buffer->member_size = FIX2INT(rb_hash_aref(rb_hTypes, ID2SYM(buffer->type)));
-        if (buffer->num_items != old_num_items) buffer_size_changed(buffer);
+        if (buffer->num_items != old_num_items || buffer->member_size != old_member_size)
+                buffer_size_changed(buffer);
         buffer->dirty = Qfalse;
         return Qtrue;
     }
@@ -365,12 +372,14 @@ buffer_write(VALUE self, cl_command_queue queue)
     
     GET_BUFFER();
 
-    if (NIL_P(RARRAY_PTR(self)[0])) return Qnil;
-    
-    for (i = 0, index = 0; i < buffer->num_items; i++, index += buffer->member_size) {
-        VALUE item = RARRAY_PTR(self)[i];
-        type_to_native(item, buffer->type, data_ptr);
-        memcpy(buffer->cachebuf + index, data_ptr, buffer->member_size);
+    if (!RTEST(buffer->raw)) {
+        if (NIL_P(RARRAY_PTR(self)[0])) return Qnil;
+
+        for (i = 0, index = 0; i < buffer->num_items; i++, index += buffer->member_size) {
+	    VALUE item = RARRAY_PTR(self)[i];
+	    type_to_native(item, buffer->type, data_ptr);
+	    memcpy(buffer->cachebuf + index, data_ptr, buffer->member_size);
+	}
     }
     
     if (queue != NULL) {
@@ -437,6 +446,35 @@ buffer_initialize(int argc, VALUE *argv, VALUE self)
         buffer->outvar = Qtrue;
     }
     
+    return self;
+}
+
+static VALUE
+buffer_from_string(VALUE klass, VALUE str, VALUE type)
+{
+    size_t typesize;
+    size_t strsize;
+    VALUE self;
+
+    Check_Type(str, T_STRING);
+
+    self = rb_funcall(rb_cBuffer, id_new, 0);
+    data_type_set(self, type);
+    buffer_update_cache(self);
+
+    GET_BUFFER();
+
+    typesize = buffer->member_size;
+    strsize = RSTRING_LEN(str);
+
+    if (strsize % typesize != 0)
+	rb_raise(rb_eArgError, "str len is not integral multiple of %s", StringValueCStr(type));
+
+    buffer->num_items = strsize / typesize;
+    buffer_size_changed(buffer);
+    memcpy(buffer->cachebuf, StringValuePtr(str), buffer->num_items * buffer->member_size);
+    buffer->raw = Qtrue;
+
     return self;
 }
 
@@ -535,7 +573,17 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
             if (RTEST(worker_size) && TYPE(worker_size) == T_FIXNUM) {
                 global[0] = FIX2UINT(worker_size);
             }
+	    else if (RTEST(worker_size) && TYPE(worker_size) == T_ARRAY && RARRAY_LEN(worker_size) <= 3) {
+		int dim;
+		for (dim = 0; dim < RARRAY_LEN(worker_size); ++dim) {
+		    VALUE v = RARRAY_PTR(worker_size)[dim];
+		    if (!RTEST(v) || TYPE(v) != T_FIXNUM)
+			goto timesargserror;
+		    global[dim] = FIX2UINT(v);
+		}
+	    }
             else {
+timesargserror:
                 CLEAN();
                 rb_raise(rb_eArgError, "opts hash must be {:times => INT_VALUE}, got %s",
                     RSTRING_PTR(rb_inspect(item)));
@@ -686,6 +734,7 @@ Init_barracuda()
     rb_define_method(rb_cProgram, "method_missing", program_method_missing, -1);
 
     rb_cBuffer = rb_define_class_under(rb_mBarracuda, "Buffer", rb_cArray);
+    rb_define_singleton_method(rb_cBuffer, "from_string", buffer_from_string, 2);
     rb_define_method(rb_cBuffer, "initialize", buffer_initialize, -1);
     rb_define_method(rb_cBuffer, "outvar", buffer_outvar, 0);
     rb_define_method(rb_cBuffer, "outvar?", buffer_is_outvar, 0);
