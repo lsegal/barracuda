@@ -5,7 +5,7 @@ hdr = if RUBY_PLATFORM =~ /darwin/
 else
   hdr = 'CL/cl.h'
   unless have_header(hdr)
-    unless find_header(hdr, '/usr/local/cuda/include')
+    unless find_header(hdr, '/usr/local/cuda/include') or find_header(hdr, '/opt/AMDAPP/include')
       puts "Header #{hdr} not found"
       exit(1)
     end
