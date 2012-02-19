@@ -650,6 +650,9 @@ init_opencl()
         if (err != CL_SUCCESS) {
             rb_raise(rb_eOpenCLError, "failed to create a device group.");
         }
+
+        /* If we failed above through an error */
+        rb_raise(rb_eOpenCLError, "failed to create a device group.");
     }
 
     if (context == NULL) {
