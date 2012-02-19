@@ -640,7 +640,7 @@ init_opencl()
 
     if (device_id == NULL) {
         // TODO: Get all the devices
-        err = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_ALL, 1, &device_id, NULL);
+        err = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 1, &device_id, NULL);
         if (err != CL_SUCCESS) {
             rb_raise(rb_eOpenCLError, "failed to create a device group.");
         }
