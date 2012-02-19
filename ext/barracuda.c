@@ -1,6 +1,6 @@
 #include <ruby.h>
 #include <math.h>
-#ifdef __APPLE__ 
+#ifdef __APPLE__
     #include <OpenCL/opencl.h>
 #else
     #include <CL/cl.h>
@@ -63,7 +63,7 @@ struct buffer {
     VALUE outvar;
     ID type;
     size_t member_size;
-    size_t num_items;
+    long num_items;
     int8_t *cachebuf;
     cl_mem data;
 };
@@ -75,10 +75,10 @@ data_type_set(VALUE self, VALUE value)
         value = rb_str_intern(rb_String(value));
     }
     if (rb_hash_aref(rb_hTypes, value) == Qnil) {
-        rb_raise(rb_eArgError, "invalid data type %s", 
+        rb_raise(rb_eArgError, "invalid data type %s",
             RSTRING_PTR(rb_inspect(value)));
     }
-    
+
     rb_ivar_set(self, id_data_type, value);
     return self;
 }
@@ -123,21 +123,21 @@ array_data_type_get(VALUE self)
 {
     VALUE value = rb_ivar_get(self, id_data_type);
     if (RTEST(value)) return value;
-    
+
     if (RARRAY_LEN(self) > 0) {
         if (NIL_P(RARRAY_PTR(self)[0])) return ID2SYM(id_type_int);
-        VALUE value = rb_funcall(RARRAY_PTR(self)[0], id_data_type, 0);
+        value = rb_funcall(RARRAY_PTR(self)[0], id_data_type, 0);
         if (RTEST(value)) return value;
     }
-    
-    rb_raise(rb_eTypeError, "unknown buffer data %s", 
+
+    rb_raise(rb_eTypeError, "unknown buffer data %s",
         RSTRING_PTR(rb_inspect(self)));
 }
 
 #define GET_PROGRAM() \
     struct program *program; \
     Data_Get_Struct(self, struct program, program);
-    
+
 #define GET_BUFFER() \
     struct buffer *buffer; \
     Data_Get_Struct(rb_ivar_get(self, id_buffer_data), struct buffer, buffer);
@@ -189,17 +189,22 @@ type_to_native(VALUE value, ID data_type, void *native_value)
         *((cl_char *)native_value) = RSTRING_PTR(value)[0];
         return;
     }
-    if (id_type_float == data_type || id_type_double == data_type) {
-        *((cl_float *)native_value) = TYPE(value) == T_FIXNUM ? 
-            (cl_float)FIX2INT(value) : RFLOAT_VALUE(value);
+    else if (id_type_float == data_type) {
+        *((cl_float *)native_value) = TYPE(value) == T_FIXNUM ?
+            (cl_float)FIX2INT(value) : (cl_float)RFLOAT_VALUE(value);
         return;
     }
-    if (id_type_half == data_type) {
-        *((cl_half *)native_value) = TYPE(value) == T_FIXNUM ? 
+    else if (id_type_double == data_type) {
+        *((cl_double*)native_value) = TYPE(value) == T_FIXNUM ?
+            (cl_double)FIX2INT(value) : RFLOAT_VALUE(value);
+        return;
+    }
+    else if (id_type_half == data_type) {
+        *((cl_half *)native_value) = TYPE(value) == T_FIXNUM ?
             (cl_half)FIX2INT(value) : RFLOAT_VALUE(value);
         return;
     }
-    
+
     TYPE_TO_NATIVE(bool,      char,       FIX2INT);
     TYPE_TO_NATIVE(short,     cl_short,   FIX2INT);
     TYPE_TO_NATIVE(ushort,    cl_ushort,  NUM2UINT);
@@ -320,7 +325,7 @@ static void
 buffer_size_changed(struct buffer *buffer)
 {
     clReleaseMemObject(buffer->data);
-    buffer->data = clCreateBuffer(context, CL_MEM_READ_WRITE, 
+    buffer->data = clCreateBuffer(context, CL_MEM_READ_WRITE,
             buffer->num_items * buffer->member_size, NULL, NULL);
     ruby_xfree(buffer->cachebuf);
     buffer->cachebuf = ruby_xmalloc(buffer->num_items * buffer->member_size);
@@ -332,7 +337,7 @@ buffer_update_cache(VALUE self)
     GET_BUFFER();
 
     if (buffer_dirty(self) == Qtrue) {
-        size_t old_num_items = buffer->num_items;
+        long old_num_items = buffer->num_items;
         buffer->num_items = RARRAY_LEN(self);
         buffer->type = SYM2ID(rb_funcall(self, id_data_type, 0));
         buffer->member_size = FIX2INT(rb_hash_aref(rb_hTypes, ID2SYM(buffer->type)));
@@ -340,14 +345,14 @@ buffer_update_cache(VALUE self)
         buffer->dirty = Qfalse;
         return Qtrue;
     }
-    
+
     return Qnil;
 }
 
 static void
 print_buffer(struct buffer *buffer)
 {
-    int i;
+    size_t i;
     for (i = 0; i < buffer->num_items * buffer->member_size; i++) {
         int c = (int)buffer->cachebuf[i];
         if (i > 0 && i % 8 == 0) printf("\n");
@@ -360,46 +365,46 @@ print_buffer(struct buffer *buffer)
 static VALUE
 buffer_write(VALUE self, cl_command_queue queue)
 {
-    unsigned int i, index;
-    unsigned long data_ptr[16]; // data buffer
-    
+    long i, index;
+    unsigned long data_ptr[16]; /* data buffer */
+
     GET_BUFFER();
 
     if (NIL_P(RARRAY_PTR(self)[0])) return Qnil;
-    
+
     for (i = 0, index = 0; i < buffer->num_items; i++, index += buffer->member_size) {
         VALUE item = RARRAY_PTR(self)[i];
         type_to_native(item, buffer->type, data_ptr);
         memcpy(buffer->cachebuf + index, data_ptr, buffer->member_size);
     }
-    
+
     if (queue != NULL) {
-        clEnqueueWriteBuffer(queue, buffer->data, CL_TRUE, 0, 
+        clEnqueueWriteBuffer(queue, buffer->data, CL_TRUE, 0,
             buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
     }
-    
+
     return self;
 }
 
 static VALUE
 buffer_read(VALUE self, cl_command_queue queue)
 {
-    unsigned int i, index;
-    
+    long i, index;
+
     GET_BUFFER();
-    
+
     if (buffer->outvar != Qtrue) return Qnil;
 
     if (queue != NULL) {
-        clEnqueueReadBuffer(queue, buffer->data, CL_TRUE, 0, 
+        clEnqueueReadBuffer(queue, buffer->data, CL_TRUE, 0,
             buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
     }
-    
+
     for (i = 0, index = 0; i < buffer->num_items; i++, index += buffer->member_size) {
         VALUE value = type_to_ruby(buffer->cachebuf + index, buffer->type);
         rb_ary_store(self, i, value);
     }
-    
+
     return self;
 }
 
@@ -418,9 +423,9 @@ buffer_initialize(int argc, VALUE *argv, VALUE self)
 {
     VALUE buf_value;
     struct buffer *buffer;
-    
+
     rb_call_super(argc, argv);
-    
+
     if (argc == 1 && TYPE(argv[0]) == T_ARRAY) {
         VALUE value = rb_ivar_get(argv[0], id_data_type);
         if (RTEST(value)) rb_ivar_set(self, id_data_type, value);
@@ -436,7 +441,7 @@ buffer_initialize(int argc, VALUE *argv, VALUE self)
     if (RARRAY_LEN(self) > 0 && NIL_P(RARRAY_PTR(self)[0])) { /* outvar */
         buffer->outvar = Qtrue;
     }
-    
+
     return self;
 }
 
@@ -460,12 +465,12 @@ static VALUE
 program_initialize(int argc, VALUE *argv, VALUE self)
 {
     VALUE source;
-    
+
     rb_scan_args(argc, argv, "01", &source);
     if (source != Qnil) {
         program_compile(self, source);
     }
-    
+
     return self;
 }
 
@@ -475,12 +480,12 @@ program_compile(VALUE self, VALUE source)
     const char *c_source;
     GET_PROGRAM();
     StringValue(source);
-    
+
     if (program->program) {
         clReleaseProgram(program->program);
         program->program = 0;
     }
-    
+
     c_source = StringValueCStr(source);
     program->program = clCreateProgramWithSource(context, 1, &c_source, NULL, &err);
     if (!program->program) {
@@ -498,7 +503,7 @@ program_compile(VALUE self, VALUE source)
         program->program = 0;
         rb_raise(rb_eProgramSyntaxError, "%s", buffer);
     }
-    
+
     return Qtrue;
 }
 
@@ -513,13 +518,13 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
     cl_command_queue commands;
     VALUE result;
     GET_PROGRAM();
-    
+
     argv[0] = rb_funcall(argv[0], id_to_s, 0);
     kernel = clCreateKernel(program->program, RSTRING_PTR(argv[0]), &err);
     if (!kernel || err != CL_SUCCESS) {
         rb_raise(rb_eNoMethodError, "no kernel method '%s'", RSTRING_PTR(argv[0]));
     }
-    
+
     commands = clCreateCommandQueue(context, device_id, 0, &err);
     if (!commands) {
         clReleaseKernel(kernel);
@@ -529,7 +534,7 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
     for (i = 1; i < argc; i++) {
         VALUE item = argv[i];
         err = !CL_SUCCESS;
-        
+
         if (i == argc - 1 && TYPE(item) == T_HASH) {
             VALUE worker_size = rb_hash_aref(item, ID2SYM(id_times));
             if (RTEST(worker_size) && TYPE(worker_size) == T_FIXNUM) {
@@ -542,7 +547,7 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
             }
             break;
         }
-        
+
         if (CLASS_OF(item) == rb_cArray) {
             /* create buffer from arg */
             argv[i] = item = rb_funcall(rb_cBuffer, id_new, 1, item);
@@ -551,19 +556,19 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
         if (CLASS_OF(item) == rb_cBuffer) {
             struct buffer *buffer;
             Data_Get_Struct(rb_ivar_get(item, id_buffer_data), struct buffer, buffer);
-            
+
             buffer_update_cache(item);
             buffer_write(item, commands);
             err = clSetKernelArg(kernel, i - 1, sizeof(cl_mem), &buffer->data);
-            if (RARRAY_LEN(item) > global[0]) {
+            if (RARRAY_LEN(item) > (long) global[0]) {
                 global[0] = RARRAY_LEN(item);
             }
         }
         else {
-            unsigned long data_ptr[16]; // a buffer of data
+            unsigned long data_ptr[16]; /* a buffer of data */
             size_t data_size_t;
             VALUE data_type, data_size;
-            
+
             if (CLASS_OF(item) == rb_cType) {
                 data_type = rb_funcall(item, id_data_type, 0);
                 item = type_object(item);
@@ -574,10 +579,10 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
             data_size = rb_hash_aref(rb_hTypes, data_type);
             if (NIL_P(data_size)) {
                 CLEAN();
-                rb_raise(rb_eTypeError, "invalid data type for %s", 
+                rb_raise(rb_eTypeError, "invalid data type for %s",
                     RSTRING_PTR(rb_inspect(item)));
             }
-            
+
             data_size_t = FIX2UINT(data_size);
             type_to_native(item, SYM2ID(data_type), (void *)data_ptr);
             err = clSetKernelArg(kernel, i - 1, data_size_t, data_ptr);
@@ -588,21 +593,21 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
             rb_raise(rb_eArgError, "invalid kernel method parameter: %s", RSTRING_PTR(rb_inspect(item)));
         }
     }
-    
+
     err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &tmp, NULL);
     err = clEnqueueNDRangeKernel(commands, kernel, 3, NULL, global, local[0] == 0 ? NULL : local, 0, NULL, NULL);
-    if (err != CL_SUCCESS) { 
-        CLEAN(); 
+    if (err != CL_SUCCESS) {
+        CLEAN();
         if (err == CL_INVALID_KERNEL_ARGS) {
-            rb_raise(rb_eArgError, "invalid arguments"); 
+            rb_raise(rb_eArgError, "invalid arguments");
         }
         else {
-            rb_raise(rb_eOpenCLError, "failed to execute kernel method %d", err); 
+            rb_raise(rb_eOpenCLError, "failed to execute kernel method %d", err);
         }
     }
-    
+
     clFinish(commands);
-    
+
     result = rb_ary_new();
 
     for (i = 1; i < argc; i++) {
@@ -615,7 +620,7 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
     }
 
     CLEAN();
-    
+
     if (RARRAY_LEN(result) == 0) {
         return Qnil;
     }
@@ -631,7 +636,7 @@ static void
 init_opencl()
 {
     if (platform_id == NULL) {
-        // TODO: Get all the platforms
+        /* TODO: Get all the platforms */
         err = clGetPlatformIDs(1, &platform_id, NULL);
         if (err != CL_SUCCESS) {
             rb_raise(rb_eOpenCLError, "failed to create a platform group.");
@@ -639,7 +644,7 @@ init_opencl()
     }
 
     if (device_id == NULL) {
-        // TODO: Get all the devices
+        /* TODO: Get all the devices */
         err = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_ALL, 1, &device_id, NULL);
         if (err != CL_SUCCESS) {
             rb_raise(rb_eOpenCLError, "failed to create a device group.");
@@ -647,14 +652,14 @@ init_opencl()
     }
 
     if (context == NULL) {
-        // TODO: Make a context spanning all the devices
+        /* TODO: Make a context spanning all the devices */
         context = clCreateContext(0, 1, &device_id, NULL, NULL, &err);
         if (!context) {
             rb_raise(rb_eOpenCLError, "failed to create a program context");
         }
     }
-    
-    clGetDeviceInfo(device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, 
+
+    clGetDeviceInfo(device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE,
         sizeof(size_t), &max_work_group_size, NULL);
     max_work_group_size = 4096;
 }
@@ -667,18 +672,18 @@ Init_barracuda()
     id_to_s = rb_intern("to_s");
     id_data_type = rb_intern("data_type");
     id_buffer_data = rb_intern("buffer_data");
-    
+
     rb_hTypes = rb_hash_new();
     rb_define_method(rb_mKernel, "Type", type_new, 1);
     types_hash_init();
-    
+
     rb_mBarracuda = rb_define_module("Barracuda");
     rb_define_const(rb_mBarracuda, "VERSION",  rb_str_new2(VERSION_STRING));
     rb_define_const(rb_mBarracuda, "TYPES", rb_hTypes);
-    
+
     rb_eProgramSyntaxError = rb_define_class_under(rb_mBarracuda, "SyntaxError", rb_eSyntaxError);
     rb_eOpenCLError = rb_define_class_under(rb_mBarracuda, "OpenCLError", rb_eStandardError);
-    
+
     rb_cProgram = rb_define_class_under(rb_mBarracuda, "Program", rb_cObject);
     rb_define_alloc_func(rb_cProgram, program_s_allocate);
     rb_define_method(rb_cProgram, "initialize", program_initialize, -1);
@@ -691,12 +696,12 @@ Init_barracuda()
     rb_define_method(rb_cBuffer, "outvar?", buffer_is_outvar, 0);
     rb_define_method(rb_cBuffer, "mark_dirty", buffer_mark_dirty, 0);
     rb_define_method(rb_cBuffer, "dirty?", buffer_dirty, 0);
-    
+
     rb_cType = rb_define_class_under(rb_mBarracuda, "Type", rb_cObject);
     rb_define_method(rb_cType, "initialize", type_initialize, 1);
     rb_define_method(rb_cType, "method_missing", type_method_missing, 1);
     rb_define_method(rb_cType, "object", type_object, 0);
-    
+
     rb_define_method(rb_cArray, "outvar", array_to_outvar, 0);
     rb_define_method(rb_cObject, "to_type", object_to_type, 1);
     rb_define_method(rb_cFixnum, "to_type", fixnum_to_type, 1);
@@ -705,6 +710,6 @@ Init_barracuda()
     rb_define_method(rb_cFixnum, "data_type", fixnum_data_type_get, 0);
     rb_define_method(rb_cBignum, "data_type", bignum_data_type_get, 0);
     rb_define_method(rb_cFloat, "data_type", float_data_type_get, 0);
-    
+
     init_opencl();
 }
