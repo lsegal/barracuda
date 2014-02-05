@@ -379,8 +379,14 @@ buffer_write(VALUE self, cl_command_queue queue)
     }
 
     if (queue != NULL) {
-        clEnqueueWriteBuffer(queue, buffer->data, CL_TRUE, 0,
+        cl_int err = clEnqueueWriteBuffer(queue, buffer->data, CL_TRUE, 0,
             buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
+
+        if (err != CL_SUCCESS)
+        {
+            rb_raise(rb_eOpenCLError, "Couldn't copy data to buffer\n");
+            exit (1);
+        }
     }
 
     return self;
@@ -396,8 +402,14 @@ buffer_read(VALUE self, cl_command_queue queue)
     if (buffer->outvar != Qtrue) return Qnil;
 
     if (queue != NULL) {
-        clEnqueueReadBuffer(queue, buffer->data, CL_TRUE, 0,
+        cl_int err = clEnqueueReadBuffer(queue, buffer->data, CL_TRUE, 0,
             buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
+
+        if (err != CL_SUCCESS)
+        {
+            rb_raise(rb_eOpenCLError, "Couldn't copy data from buffer\n");
+            exit (1);
+        }
     }
 
     for (i = 0, index = 0; i < buffer->num_items; i++, index += buffer->member_size) {
@@ -495,13 +507,20 @@ program_compile(VALUE self, VALUE source)
 
     err = clBuildProgram(program->program, 0, NULL, NULL, NULL, NULL);
     if (err != CL_SUCCESS) {
-        size_t len;
-        char buffer[2048];
+        size_t log_size;
+        char *program_log;
 
-        clGetProgramBuildInfo(program->program, device_id, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &len);
-        clReleaseProgram(program->program);
-        program->program = 0;
-        rb_raise(rb_eProgramSyntaxError, "%s", buffer);
+        /*
+         * Find size of log and print to std output
+         */
+        clGetProgramBuildInfo (program->program, device_id, CL_PROGRAM_BUILD_LOG,
+                               0, NULL, &log_size);
+        program_log = (char *) ALLOC_N (char, log_size + 1);
+        clGetProgramBuildInfo (program->program, device_id, CL_PROGRAM_BUILD_LOG,
+                               log_size + 1, program_log, NULL);
+        program_log[log_size] = '\0';
+        rb_raise(rb_eProgramSyntaxError, "%s", program_log);
+        xfree (program_log);
     }
 
     return Qtrue;
