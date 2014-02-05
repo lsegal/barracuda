@@ -541,7 +541,7 @@ static VALUE
 program_method_missing(int argc, VALUE *argv, VALUE self)
 {
     int i;
-    size_t global[3] = {1, 1, 1}, local[3] = {0, 1, 1}, tmp;
+    size_t global[3] = {1, 1, 1}, local[3] = {0, 1, 1};
     cl_kernel kernel;
     cl_command_queue commands;
     VALUE result;
@@ -627,8 +627,9 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
         }
     }
 
-    err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &tmp, NULL);
-    err |= clEnqueueNDRangeKernel(commands, kernel, 3, NULL, global, local[0] == 0 ? NULL : local, 0, NULL, NULL);
+    //size_t tmp;
+    //err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &tmp, NULL);
+    err = clEnqueueNDRangeKernel(commands, kernel, 3, NULL, global, local[0] == 0 ? NULL : local, 0, NULL, NULL);
     if (err != CL_SUCCESS) {
         CLEAN();
         if (err == CL_INVALID_KERNEL_ARGS) {
