@@ -17,7 +17,7 @@ when /linux/
   hdrdirs = []
   libdirs.each do |dir|
     dir = File.split(dir)
-    until dir.empty?
+    until dir[0] == "/"
       location = File.join(dir + ['include'])
       if find_header('CL/cl.h', location)
         puts "Found headers: #{location}"
