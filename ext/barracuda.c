@@ -77,6 +77,7 @@ data_type_set(VALUE self, VALUE value)
     if (rb_hash_aref(rb_hTypes, value) == Qnil) {
         rb_raise(rb_eArgError, "invalid data type %s",
             RSTRING_PTR(rb_inspect(value)));
+        return Qnil;
     }
 
     rb_ivar_set(self, id_data_type, value);
@@ -324,9 +325,15 @@ buffer_mark_dirty(VALUE self)
 static void
 buffer_size_changed(struct buffer *buffer)
 {
+    cl_int err;
     clReleaseMemObject(buffer->data);
     buffer->data = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            buffer->num_items * buffer->member_size, NULL, NULL);
+            buffer->num_items * buffer->member_size, NULL, &err);
+    if(err != CL_SUCCESS)
+    {
+        rb_raise(rb_eOpenCLError, "Couldn't create buffer\n");
+    }
+
     ruby_xfree(buffer->cachebuf);
     buffer->cachebuf = ruby_xmalloc(buffer->num_items * buffer->member_size);
 }
@@ -379,8 +386,14 @@ buffer_write(VALUE self, cl_command_queue queue)
     }
 
     if (queue != NULL) {
-        clEnqueueWriteBuffer(queue, buffer->data, CL_TRUE, 0,
+        cl_int err = clEnqueueWriteBuffer(queue, buffer->data, CL_TRUE, 0,
             buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
+
+        if (err != CL_SUCCESS)
+        {
+            rb_raise(rb_eOpenCLError, "Couldn't copy data to buffer\n");
+            return Qnil;
+        }
     }
 
     return self;
@@ -396,8 +409,14 @@ buffer_read(VALUE self, cl_command_queue queue)
     if (buffer->outvar != Qtrue) return Qnil;
 
     if (queue != NULL) {
-        clEnqueueReadBuffer(queue, buffer->data, CL_TRUE, 0,
+        cl_int err = clEnqueueReadBuffer(queue, buffer->data, CL_TRUE, 0,
             buffer->num_items * buffer->member_size, buffer->cachebuf, 0, NULL, NULL);
+
+        if (err != CL_SUCCESS)
+        {
+            rb_raise(rb_eOpenCLError, "Couldn't copy data from buffer\n");
+            return Qnil;
+        }
     }
 
     for (i = 0, index = 0; i < buffer->num_items; i++, index += buffer->member_size) {
@@ -491,17 +510,26 @@ program_compile(VALUE self, VALUE source)
     if (!program->program) {
         program->program = 0;
         rb_raise(rb_eOpenCLError, "failed to create compute program");
+        return Qnil;
     }
 
     err = clBuildProgram(program->program, 0, NULL, NULL, NULL, NULL);
     if (err != CL_SUCCESS) {
-        size_t len;
-        char buffer[2048];
+        size_t log_size;
+        char *program_log;
 
-        clGetProgramBuildInfo(program->program, device_id, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &len);
-        clReleaseProgram(program->program);
-        program->program = 0;
-        rb_raise(rb_eProgramSyntaxError, "%s", buffer);
+        /*
+         * Find size of log and print to std output
+         */
+        clGetProgramBuildInfo (program->program, device_id, CL_PROGRAM_BUILD_LOG,
+                               0, NULL, &log_size);
+        program_log = (char *) ALLOC_N (char, log_size + 1);
+        clGetProgramBuildInfo (program->program, device_id, CL_PROGRAM_BUILD_LOG,
+                               log_size + 1, program_log, NULL);
+        program_log[log_size] = '\0';
+        rb_raise(rb_eProgramSyntaxError, "%s", program_log);
+        xfree (program_log);
+        return Qnil;
     }
 
     return Qtrue;
@@ -513,7 +541,7 @@ static VALUE
 program_method_missing(int argc, VALUE *argv, VALUE self)
 {
     int i;
-    size_t global[3] = {1, 1, 1}, local[3] = {0, 1, 1}, tmp;
+    size_t global[3] = {1, 1, 1}, local[3] = {0, 1, 1};
     cl_kernel kernel;
     cl_command_queue commands;
     VALUE result;
@@ -523,12 +551,14 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
     kernel = clCreateKernel(program->program, RSTRING_PTR(argv[0]), &err);
     if (!kernel || err != CL_SUCCESS) {
         rb_raise(rb_eNoMethodError, "no kernel method '%s'", RSTRING_PTR(argv[0]));
+        return Qnil;
     }
 
     commands = clCreateCommandQueue(context, device_id, 0, &err);
     if (!commands) {
         clReleaseKernel(kernel);
         rb_raise(rb_eOpenCLError, "could not execute kernel method '%s': %d", RSTRING_PTR(argv[0]), err);
+        return Qnil;
     }
 
     for (i = 1; i < argc; i++) {
@@ -544,6 +574,7 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
                 CLEAN();
                 rb_raise(rb_eArgError, "opts hash must be {:times => INT_VALUE}, got %s",
                     RSTRING_PTR(rb_inspect(item)));
+                return Qnil;
             }
             break;
         }
@@ -581,6 +612,7 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
                 CLEAN();
                 rb_raise(rb_eTypeError, "invalid data type for %s",
                     RSTRING_PTR(rb_inspect(item)));
+                return Qnil;
             }
 
             data_size_t = FIX2UINT(data_size);
@@ -591,10 +623,12 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
         if (err != CL_SUCCESS) {
             CLEAN();
             rb_raise(rb_eArgError, "invalid kernel method parameter: %s", RSTRING_PTR(rb_inspect(item)));
+            return Qnil;
         }
     }
 
-    err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &tmp, NULL);
+    //size_t tmp;
+    //err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &tmp, NULL);
     err = clEnqueueNDRangeKernel(commands, kernel, 3, NULL, global, local[0] == 0 ? NULL : local, 0, NULL, NULL);
     if (err != CL_SUCCESS) {
         CLEAN();
@@ -640,6 +674,7 @@ init_opencl()
         err = clGetPlatformIDs(1, &platform_id, NULL);
         if (err != CL_SUCCESS) {
             rb_raise(rb_eOpenCLError, "failed to create a platform group.");
+            return;
         }
     }
 
@@ -649,6 +684,7 @@ init_opencl()
 
         if (err != CL_SUCCESS) {
             rb_raise(rb_eOpenCLError, "failed to create a device group.");
+            return;
         }
     }
 
@@ -657,6 +693,8 @@ init_opencl()
         context = clCreateContext(0, 1, &device_id, NULL, NULL, &err);
         if (!context) {
             rb_raise(rb_eOpenCLError, "failed to create a program context");
+            clReleaseDevice(device_id);
+            return;
         }
     }
 

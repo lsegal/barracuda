@@ -19,6 +19,11 @@ include Barracuda
 class TestProgram < Test::Unit::TestCase
   def test_program_create_invalid_code
     assert_raise(Barracuda::SyntaxError) { Program.new "fib { SYNTAXERROR }" }
+    begin
+      Program.new "fib { SYNTAXERROR }"
+    rescue Barracuda::SyntaxError => e
+      #p e.message
+    end
   end
   
   def test_program_create

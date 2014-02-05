@@ -1,24 +1,50 @@
 require 'mkmf'
-$CPPFLAGS += " -DRUBY_19" if RUBY_VERSION =~ /1.9/
-hdr = if RUBY_PLATFORM =~ /darwin/
+
+
+# Determine the location of runtime & build libraries
+case RUBY_PLATFORM
+when /darwin/
   $LDFLAGS += ' -framework OpenCL'
-else
-  hdr = 'CL/cl.h'
-  unless have_header(hdr)
-    if find_header(hdr, '/usr/local/cuda/include')
-      # Add library path for cuda
-    elsif find_header(hdr, '/opt/AMDAPP/include')
-      $LDFLAGS += ' -L/opt/AMDAPP/lib/x86_64/ -L/opt/AMDAPP/lib/x86/'
-    else
-      puts "Header #{hdr} not found"
-      exit(1)
+when /linux/
+  #locate the OpenCL shared libraries
+  libdirs = `ldconfig -p`.lines.grep(/OpenCL/).collect {|l| File.dirname(l.split('=>')[1].strip) }
+  libdirs |= libdirs # eliminate duplicates
+  raise "OpenCL libraries not found" if libdirs.empty?
+
+  $LDFLAGS += libdirs.collect{|d| " -L#{d}"}.join('')
+  
+  # search for header files
+  hdrdirs = []
+  libdirs.each do |dir|
+    dir = File.split(dir)
+    until dir[0] == "/"
+      location = File.join(dir + ['include'])
+      if find_header('CL/cl.h', location)
+        puts "Found headers: #{location}"
+        hdrdirs << location
+        break
+      end
+      dir = File.split(dir[0])
     end
+    break unless hdrdirs.empty?
   end
-  unless find_library('OpenCL', 'clGetDeviceIDs')
-    puts "OpenCL library not found"
-    exit(1)
-  end
+  raise "OpenCL headers not found" if hdrdirs.empty?
+
+when /mingw32/
+  # Windows
+  raise "Compiling on Windows is not yet supported"
+else
+  raise "Unrecognized platform"
 end
 
+
+# Determine the availability of the OpenCL shared library
+unless find_library('OpenCL', 'clGetDeviceIDs')
+  raise "OpenCL library not found"
+end
+
+$CFLAGS << " -DRUBY_19" if RUBY_VERSION =~ /1.9/
+# Flags for development & debugging
+$CFLAGS << ' -g -Wall -Werror -Wno-unused-function'
 
 create_makefile('barracuda')
