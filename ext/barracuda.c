@@ -77,6 +77,7 @@ data_type_set(VALUE self, VALUE value)
     if (rb_hash_aref(rb_hTypes, value) == Qnil) {
         rb_raise(rb_eArgError, "invalid data type %s",
             RSTRING_PTR(rb_inspect(value)));
+        return Qnil;
     }
 
     rb_ivar_set(self, id_data_type, value);
@@ -324,9 +325,15 @@ buffer_mark_dirty(VALUE self)
 static void
 buffer_size_changed(struct buffer *buffer)
 {
+    cl_int err;
     clReleaseMemObject(buffer->data);
     buffer->data = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            buffer->num_items * buffer->member_size, NULL, NULL);
+            buffer->num_items * buffer->member_size, NULL, &err);
+    if(err != CL_SUCCESS)
+    {
+        rb_raise(rb_eOpenCLError, "Couldn't create buffer\n");
+    }
+
     ruby_xfree(buffer->cachebuf);
     buffer->cachebuf = ruby_xmalloc(buffer->num_items * buffer->member_size);
 }
@@ -385,7 +392,7 @@ buffer_write(VALUE self, cl_command_queue queue)
         if (err != CL_SUCCESS)
         {
             rb_raise(rb_eOpenCLError, "Couldn't copy data to buffer\n");
-            exit (1);
+            return Qnil;
         }
     }
 
@@ -408,7 +415,7 @@ buffer_read(VALUE self, cl_command_queue queue)
         if (err != CL_SUCCESS)
         {
             rb_raise(rb_eOpenCLError, "Couldn't copy data from buffer\n");
-            exit (1);
+            return Qnil;
         }
     }
 
@@ -503,6 +510,7 @@ program_compile(VALUE self, VALUE source)
     if (!program->program) {
         program->program = 0;
         rb_raise(rb_eOpenCLError, "failed to create compute program");
+        return Qnil;
     }
 
     err = clBuildProgram(program->program, 0, NULL, NULL, NULL, NULL);
@@ -521,6 +529,7 @@ program_compile(VALUE self, VALUE source)
         program_log[log_size] = '\0';
         rb_raise(rb_eProgramSyntaxError, "%s", program_log);
         xfree (program_log);
+        return Qnil;
     }
 
     return Qtrue;
@@ -542,12 +551,14 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
     kernel = clCreateKernel(program->program, RSTRING_PTR(argv[0]), &err);
     if (!kernel || err != CL_SUCCESS) {
         rb_raise(rb_eNoMethodError, "no kernel method '%s'", RSTRING_PTR(argv[0]));
+        return Qnil;
     }
 
     commands = clCreateCommandQueue(context, device_id, 0, &err);
     if (!commands) {
         clReleaseKernel(kernel);
         rb_raise(rb_eOpenCLError, "could not execute kernel method '%s': %d", RSTRING_PTR(argv[0]), err);
+        return Qnil;
     }
 
     for (i = 1; i < argc; i++) {
@@ -563,6 +574,7 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
                 CLEAN();
                 rb_raise(rb_eArgError, "opts hash must be {:times => INT_VALUE}, got %s",
                     RSTRING_PTR(rb_inspect(item)));
+                return Qnil;
             }
             break;
         }
@@ -600,6 +612,7 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
                 CLEAN();
                 rb_raise(rb_eTypeError, "invalid data type for %s",
                     RSTRING_PTR(rb_inspect(item)));
+                return Qnil;
             }
 
             data_size_t = FIX2UINT(data_size);
@@ -610,11 +623,12 @@ program_method_missing(int argc, VALUE *argv, VALUE self)
         if (err != CL_SUCCESS) {
             CLEAN();
             rb_raise(rb_eArgError, "invalid kernel method parameter: %s", RSTRING_PTR(rb_inspect(item)));
+            return Qnil;
         }
     }
 
     err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &tmp, NULL);
-    err = clEnqueueNDRangeKernel(commands, kernel, 3, NULL, global, local[0] == 0 ? NULL : local, 0, NULL, NULL);
+    err |= clEnqueueNDRangeKernel(commands, kernel, 3, NULL, global, local[0] == 0 ? NULL : local, 0, NULL, NULL);
     if (err != CL_SUCCESS) {
         CLEAN();
         if (err == CL_INVALID_KERNEL_ARGS) {
@@ -659,6 +673,7 @@ init_opencl()
         err = clGetPlatformIDs(1, &platform_id, NULL);
         if (err != CL_SUCCESS) {
             rb_raise(rb_eOpenCLError, "failed to create a platform group.");
+            return;
         }
     }
 
@@ -668,6 +683,7 @@ init_opencl()
 
         if (err != CL_SUCCESS) {
             rb_raise(rb_eOpenCLError, "failed to create a device group.");
+            return;
         }
     }
 
@@ -676,6 +692,8 @@ init_opencl()
         context = clCreateContext(0, 1, &device_id, NULL, NULL, &err);
         if (!context) {
             rb_raise(rb_eOpenCLError, "failed to create a program context");
+            clReleaseDevice(device_id);
+            return;
         }
     }
 

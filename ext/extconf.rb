@@ -1,5 +1,7 @@
 require 'mkmf'
-$CPPFLAGS += " -DRUBY_19" if RUBY_VERSION =~ /1.9/
+
+#$CFLAGS << ' -Werror ' #if CONFIG['CC'] =~ /gcc/
+$CFLAGS << " -DRUBY_19" if RUBY_VERSION =~ /1.9/
 hdr = if RUBY_PLATFORM =~ /darwin/
   $LDFLAGS += ' -framework OpenCL'
 else
@@ -19,6 +21,6 @@ else
     exit(1)
   end
 end
-
+$CFLAGS << ' -O0 -Wall -Werror -Wno-unused-function'
 
 create_makefile('barracuda')
