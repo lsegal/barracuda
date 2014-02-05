@@ -5,12 +5,16 @@ hdr = if RUBY_PLATFORM =~ /darwin/
 else
   hdr = 'CL/cl.h'
   unless have_header(hdr)
-    unless find_header(hdr, '/usr/local/cuda/include') or find_header(hdr, '/opt/AMDAPP/include')
+    if find_header(hdr, '/usr/local/cuda/include')
+      # Add library path for cuda
+    elsif find_header(hdr, '/opt/AMDAPP/include')
+      $LDFLAGS += ' -L/opt/AMDAPP/lib/x86_64/ -L/opt/AMDAPP/lib/x86/'
+    else
       puts "Header #{hdr} not found"
       exit(1)
     end
   end
-  unless have_library('OpenCL')
+  unless find_library('OpenCL', 'clGetDeviceIDs')
     puts "OpenCL library not found"
     exit(1)
   end

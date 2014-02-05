@@ -1,5 +1,5 @@
 require 'rubygems'
-require 'rake/gempackagetask'
+require 'rubygems/package_task'
 require 'rake/testtask'
 
 WINDOWS = (PLATFORM =~ /win32|cygwin/ ? true : false) rescue false
@@ -16,7 +16,7 @@ end
 Rake::TestTask.new
 
 load 'barracuda.gemspec'
-Rake::GemPackageTask.new(SPEC) do |pkg|
+Gem::PackageTask.new(SPEC) do |pkg|
   pkg.gem_spec = SPEC
   pkg.need_zip = true
   pkg.need_tar = true
