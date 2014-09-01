@@ -9,4 +9,4 @@ pkg
 **/*.dylib
 **/*.dll
 **/*.log
-
+*.swp

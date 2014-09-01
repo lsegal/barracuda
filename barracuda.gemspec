@@ -1,7 +1,7 @@
 SPEC = Gem::Specification.new do |s|
   s.name = "barracuda"
-  s.version = "1.3"
-  s.date = "2009-09-06"
+  s.version = "1.4"
+  s.date = "2014-08-31"
   s.author = "Loren Segal"
   s.email = "lsegal@soen.ca"
   s.homepage = "http://github.com/lsegal/barracuda"
